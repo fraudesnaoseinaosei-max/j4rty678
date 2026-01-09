@@ -846,8 +846,12 @@ local BotCore = (function()
         RaycastDistance = 5,
         StuckThreshold = 2,
         JumpPower = 50,
+        RaycastDistance = 5,
+        StuckThreshold = 2,
+        JumpPower = 50,
         VisionRadius = 50, -- Vision Radius
-        DefenseRadius = 15 -- Radius to trigger defense on Master
+        DefenseRadius = 15, -- Radius to trigger defense on Master
+        FlingSafeDistance = 3 -- Distance from Master to disable Fling (Safety)
     }
     
     local FlingTargets = {} -- List of targets to attack
@@ -1267,30 +1271,52 @@ local BotCore = (function()
                       return
                  end
                  
-             else
-                 -- [PHASE 2: WALKFLING SPIN]
-                 -- "Pipoco" Fix: Do NOT Skyrocket. Stay grounded.
-                 -- Move INTO the target to force physics collision overlap.
-                 
-                 -- High Angular Velocity for Spin
-                 myRoot.AssemblyAngularVelocity = Vector3.new(0, 10000, 0)
-                 
-                 -- Reset Linear Velocity to avoid flying away (keep it normal physics)
-                 -- myRoot.AssemblyLinearVelocity = Vector3.zero 
-                 -- Actually, we want to PUSH them.
-                 
-                 -- Position: Walk INTO them.
-                 myHum:MoveTo(tRoot.Position)
-                 
-                 -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
-                 if distFromMe > 5 then
-                      myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 2)
+             end
+             
+             -- [SAFE DISTANCE CHECK]
+             -- If Master is too close to me while I am flinging, STOP SPINNING to avoid hitting Master.
+             if currentTargetName and currentTargetName ~= "Nenhum" then
+                 local master = Players:FindFirstChild(currentTargetName)
+                 if master and master.Character then
+                      local mRoot = getRoot(master.Character)
+                      if mRoot then
+                          local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
+                          if distToMaster < Config.FlingSafeDistance then
+                               -- SAFETY STOP
+                               myRoot.AssemblyAngularVelocity = Vector3.zero
+                               myRoot.AssemblyLinearVelocity = Vector3.zero
+                               -- We can still move towards enemy, but no dangerous spin
+                               myHum:MoveTo(tRoot.Position)
+                               return
+                          end
+                      end
                  end
-                 
-                 -- If we are really close, maybe jump to mess them up?
-                 if distFromMe < 2 then
-                     -- myHum.Jump = true 
-                 end
+             end
+             
+             -- [PHASE 2: WALKFLING SPIN]
+             -- "Pipoco" Fix: Do NOT Skyrocket. Stay grounded.
+             -- Move INTO the target to force physics collision overlap.
+             
+             -- High Angular Velocity for Spin
+             myRoot.AssemblyAngularVelocity = Vector3.new(0, 10000, 0)
+             
+             -- Reset Linear Velocity to avoid flying away (keep it normal physics)
+             -- myRoot.AssemblyLinearVelocity = Vector3.zero 
+             -- Actually, we want to PUSH them.
+             
+             -- Position: Walk INTO them CONSTANTLY
+             -- Force movement even if close
+             myHum:MoveTo(tRoot.Position)
+             
+             -- Aggressive Push:
+             -- If we are touching or very close, ensure we keep trying to step ON them
+             if distFromMe < 3 then
+                 myHum:MoveTo(tRoot.Position + (tRoot.Position - myRoot.Position).Unit * 2)
+             end
+             
+             -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
+             if distFromMe > 5 then
+                  myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 2)
              end
 
              -- --- SAFETY CHECK ---
@@ -1436,6 +1462,11 @@ local BotCore = (function()
     function BotCore:RemoveDefenseIgnore(name)
         DefenseConfig.IgnoreList[name] = nil
         warn("[BotConfig] Defense Ignore Removed: " .. name)
+    end
+
+    function BotCore:SetFlingSafeDistance(dist)
+        Config.FlingSafeDistance = dist
+        warn("[BotConfig] Fling Safe Distance: " .. dist)
     end
 
     function BotCore:SetEnabled(state)
@@ -2750,6 +2781,11 @@ end)
 BotGroup:Slider("Raio de Visão (Ataque)", 10, 500, 50, function(v)
     BotCore:SetVisionRadius(v)
 end)
+
+BotGroup:Slider("Distância Segura (Fling)", 1, 50, 3, function(v)
+    BotCore:SetFlingSafeDistance(v)
+end)
+
 
 BotGroup:Toggle("Modo Defesa (Auto)", false, function(v)
     BotCore:SetDefenseEnabled(v)
