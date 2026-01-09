@@ -1060,7 +1060,7 @@ local BotCore = (function()
                         end
                     end
                 end
-                end
+
             end
             
             -- DEFENSE MODE LOGIC
