@@ -829,8 +829,12 @@ local BotCore = (function()
     local currentWaypoints = nil
     local currentWaypointIndex = 0
     local lastPosition = Vector3.new(0,0,0)
-    local stuckTimer = 0
-    local noCollisionConstraint = nil
+    local noCollisionConstraintParts = {} -- Store multiple constraints
+    
+    local DefenseConfig = {
+        TeamCheck = false,
+        IgnoreList = {}
+    }
 
 
     -- Configuration
@@ -993,32 +997,40 @@ local BotCore = (function()
         end
 
         local function UpdateCollision(targetChar)
-             -- Disable collision with Master
+             -- Disable collision with Master (Ghost Mode)
              if not targetChar then 
-                 if noCollisionConstraint then noCollisionConstraint:Destroy(); noCollisionConstraint = nil end
+                 for _, c in pairs(noCollisionConstraintParts) do c:Destroy() end
+                 noCollisionConstraintParts = {}
                  return 
              end
              
              local tRoot = getRoot(targetChar)
              if not tRoot then return end
              
-             -- Optimization: Only create if mostly needed? Or simple physics service group? 
-             -- Since this is "Bot Me", we just want the LocalPlayer to NOT collide with Target.
-             -- Client side, we can set CanCollide = false on our own parts? No, that makes us fall through floor.
-             -- We need NoCollisionConstraint.
-             if not noCollisionConstraint or not noCollisionConstraint.Parent then
-                 local att0 = Instance.new("Attachment")
-                 att0.Name = "BotAtt"
-                 att0.Parent = myRoot
-                 
-                 local att1 = Instance.new("Attachment")
-                 att1.Name = "MasterAtt"
-                 att1.Parent = tRoot
-                 
-                 noCollisionConstraint = Instance.new("NoCollisionConstraint")
-                 noCollisionConstraint.Part0 = myRoot
-                 noCollisionConstraint.Part1 = tRoot
-                 noCollisionConstraint.Parent = myRoot
+             local myChar = LocalPlayer.Character
+             if not myChar then return end
+             
+             -- Iterate all my parts and constrain to Target Root
+             -- This ensures I cannot push the target with ANY limb.
+             for _, part in pairs(myChar:GetChildren()) do
+                 if part:IsA("BasePart") then
+                     if not noCollisionConstraintParts[part] or not noCollisionConstraintParts[part].Parent then
+                         local att0 = Instance.new("Attachment")
+                         att0.Name = "BotAtt_"..part.Name
+                         att0.Parent = part
+                         
+                         local att1 = Instance.new("Attachment")
+                         att1.Name = "MasterAtt_"..part.Name
+                         att1.Parent = tRoot
+                         
+                         local ncc = Instance.new("NoCollisionConstraint")
+                         ncc.Part0 = part
+                         ncc.Part1 = tRoot
+                         ncc.Parent = part
+                         
+                         noCollisionConstraintParts[part] = ncc
+                     end
+                 end
              end
         end
 
@@ -1075,7 +1087,15 @@ local BotCore = (function()
                         
                         for _, enemy in pairs(Players:GetPlayers()) do
                             if enemy ~= LocalPlayer and enemy ~= master then
-                                if enemy.Character then
+                                -- CHECKS
+                                local allow = true
+                                if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                                if DefenseConfig.TeamCheck then
+                                    if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                                    if master.TeamColor and enemy.TeamColor and master.TeamColor == enemy.TeamColor then allow = false end
+                                end
+                                
+                                if allow and enemy.Character then
                                     local eRoot = getRoot(enemy.Character)
                                     local eHum = getHumanoid(enemy.Character)
                                     if eRoot and eHum and eHum.Health > 0 then
@@ -1403,6 +1423,21 @@ local BotCore = (function()
         CheckLoop()
     end
     
+    function BotCore:SetDefenseTeamCheck(state)
+        DefenseConfig.TeamCheck = state
+        warn("[BotConfig] Defense TeamCheck: " .. tostring(state))
+    end
+    
+    function BotCore:AddDefenseIgnore(name)
+        DefenseConfig.IgnoreList[name] = true
+        warn("[BotConfig] Defense Ignore Added: " .. name)
+    end
+    
+    function BotCore:RemoveDefenseIgnore(name)
+        DefenseConfig.IgnoreList[name] = nil
+        warn("[BotConfig] Defense Ignore Removed: " .. name)
+    end
+
     function BotCore:SetEnabled(state)
         -- Redirect legacy calls to Follow logic
         -- This ensures "Seguir Player" behavior is preserved if called via old methods
@@ -2716,6 +2751,20 @@ BotGroup:Slider("Raio de Visão (Ataque)", 10, 500, 50, function(v)
     BotCore:SetVisionRadius(v)
 end)
 
+BotGroup:Toggle("Modo Defesa (Auto)", false, function(v)
+    BotCore:SetDefenseEnabled(v)
+end)
+
+BotGroup:Toggle("Ignorar Aliados (Defesa do Bot)", false, function(v)
+    BotCore:SetDefenseTeamCheck(v)
+end)
+
+BotGroup:InteractiveList("Ignorar Players (Defesa)", GetPlayersList, function(name)
+    BotCore:AddDefenseIgnore(name)
+end, function(name)
+    BotCore:RemoveDefenseIgnore(name)
+end)
+
 BotGroup:InteractiveList("Alvo(s) Fling", GetPlayersList, function(name)
     BotCore:AddFlingTarget(name)
 end, function(name)
@@ -2732,10 +2781,6 @@ end)
 
 BotsGroup:Toggle("Missel player(fling)", false, function(v)
     BotCore:SetFlingEnabled(v)
-end)
-
-BotsGroup:Toggle("Modo Defesa (Auto)", false, function(v)
-    BotCore:SetDefenseEnabled(v)
 end)
 
 
