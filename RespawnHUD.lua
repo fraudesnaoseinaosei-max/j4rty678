@@ -916,15 +916,6 @@ do -- Start BotCore Block
             hum:MoveTo(position)
         end
     end
-    
-    function BotCore:SetWalkSpeed(speed)
-        Config.BotWalkSpeed = speed
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.WalkSpeed = speed
-        end
-    end
-    Config.BotWalkSpeed = 16 -- Default
 
     local lastDebugPrint = 0
     local wanderingTarget = nil
@@ -1344,55 +1335,24 @@ do -- Start BotCore Block
              local tRoot = getRoot(activeFlingTarget.Character)
              if not tRoot then currentFlingState = FlingState.RETURNING return end
              
+             -- Noclip & Float
+             if myHum.Sit then myHum.Sit = false end
+             for _, p in pairs(myChar:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = false end end
+             myHum.PlatformStand = true
+             
              local dist = (myRoot.Position - tRoot.Position).Magnitude
              
-             -- [LOGIC FIX: FLYING VS WALKING]
-             -- If this is "Defense Mode" (protecting master) and Missile is OFF, we should WALK/RUN.
-             -- Only use Flight if Missile Mode (Fling Enabled) is explicitly ON.
-             local useFlight = isFlingEnabled -- Missile Mode
-             
-             if not useFlight then
-                 -- WALK/RUN APPROACH (Defense Mode)
-                 if myHum.Sit then myHum.Sit = false end
-                 
-                 -- Ensure normal physics for walking
-                 myHum.PlatformStand = false
-                 for _, p in pairs(myChar:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = true end end
-                 
-                 -- Set Speed (Boost for attack?) or use Config Speed
-                 myHum.WalkSpeed = Config.BotWalkSpeed or 16
-                 
-                 if dist < 5 then
-                     currentFlingState = FlingState.FLINGING
-                     lastTargetPos = tRoot.Position
-                     flingStartTime = tick()
-                 else
-                     -- Just run to them
-                     myHum:MoveTo(tRoot.Position)
-                     -- Check if stuck? pathfinding? For approach, direct is usually fine unless walled.
-                     if dist > 20 then
-                         -- Use pathfinding if far? For now direct.
-                     end
-                 end
-                 
+             if dist < 5 then
+                 -- Arrived!
+                 currentFlingState = FlingState.FLINGING
+                 lastTargetPos = tRoot.Position
+                 flingStartTime = tick()
+                 flingStartHeight = myRoot.Position.Y -- CAPTURE START HEIGHT
              else
-                 -- FLIGHT APPROACH (Missile Fling)
-                 if myHum.Sit then myHum.Sit = false end
-                 for _, p in pairs(myChar:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = false end end
-                 myHum.PlatformStand = true
-                 
-                 if dist < 5 then
-                     -- Arrived!
-                     currentFlingState = FlingState.FLINGING
-                     lastTargetPos = tRoot.Position
-                     flingStartTime = tick()
-                     flingStartHeight = myRoot.Position.Y 
-                 else
-                     -- Fly towards
-                     local dir = (tRoot.Position - myRoot.Position).Unit
-                     myRoot.AssemblyLinearVelocity = dir * 80 -- Controlled speed
-                     myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
-                 end
+                 -- Fly towards
+                 local dir = (tRoot.Position - myRoot.Position).Unit
+                 myRoot.AssemblyLinearVelocity = dir * 80 -- Controlled speed
+                 myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
              end
 
      -- [STATE: FLINGING] Spin & Neutralize
@@ -1532,28 +1492,21 @@ do -- Start BotCore Block
                   end
              else
                   -- CONTACT PHASE (The Touch)
-                  -- "Touch Walkfling" isn't enough? Use "Velocity Ramming".
-                  -- Push *THROUGH* the target. MoveTo stops at surface. Velocity ignores it until physics solves it (FLING).
-                  
-                  -- 1. Aim straight at them
-                  myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
-                  
-                  -- 2. Force Physics Overlap (The secret sauce of fling)
-                  -- 15000 Spin + 2000 Speed Push = Ejection
-                  myRoot.AssemblyAngularVelocity = Vector3.new(0, 15000, 0)
-                  myRoot.AssemblyLinearVelocity = (tRoot.Position - myRoot.Position).Unit * 1000 + Vector3.new(0, 2, 0)
-                  
-                  -- 3. Keep Walking just in case (Animation)
+                  -- Just walk into them. The Spin does the rest.
                   myHum:MoveTo(tRoot.Position)
                   
-                  -- 4. Re-Enforce Collision (Crucial)
-                  for _, p in pairs(myChar:GetChildren()) do
-                      if p:IsA("BasePart") then p.CanCollide = true end
+                  -- Keep vertical aligned to avoid falling through map
+                  if myRoot.Position.Y < tRoot.Position.Y - 2 then
+                      myRoot.CFrame = myRoot.CFrame + Vector3.new(0, 1, 0)
                   end
                   
-                  -- 5. Anti-Void (Don't fall through floor)
-                  if myRoot.Position.Y < tRoot.Position.Y - 3 then
-                      myRoot.AssemblyLinearVelocity = Vector3.new(0, 50, 0)
+                  -- OPTIONAL: Tiny glue if they run too fast?
+                  -- No, let 'MoveTo' handle it. If we use CFrame here, it glitches.
+                  -- Only CFrame if they are actually getting away faster than we run.
+                  if tRoot.AssemblyLinearVelocity.Magnitude > myHum.WalkSpeed + 10 then
+                       -- They are fleeing fast. Prediction needed?
+                       -- Just mild CFrame nudge, not full re-set.
+                       myRoot.CFrame = CFrame.new(myRoot.Position:Lerp(tRoot.Position, 0.2)) * myRoot.CFrame.Rotation
                   end
              end
              
@@ -3475,10 +3428,6 @@ do
 
     BotGroup:Toggle("Ativar Seguir", false, function(v)
         BotCore:SetFollowEnabled(v)
-    end)
-    
-    BotGroup:Slider("Velocidade Bot", 16, 100, 16, function(v)
-        BotCore:SetWalkSpeed(v)
     end)
 
     BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
