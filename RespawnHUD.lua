@@ -2062,69 +2062,11 @@ function VoidLib:CreateWindow()
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.DisplayOrder = 999999
     ScreenGui.ResetOnSpawn = false
-    
-    local UIS = game:GetService("UserInputService")
-    local isMobile = UIS.TouchEnabled
-    
-    -- Mobile Toggle Button
-    if isMobile then
-        local ToggleBtn = Instance.new("ImageButton")
-        ToggleBtn.Name = "MobileToggle"
-        ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
-        ToggleBtn.Position = UDim2.new(1, -70, 0.5, -25) -- Right Center
-        ToggleBtn.BackgroundColor3 = Themes.Background
-        ToggleBtn.Image = "rbxassetid://6031091004" -- Menu Icon
-        ToggleBtn.Parent = ScreenGui
-        local TC = Instance.new("UICorner"); TC.CornerRadius = UDim.new(1, 0); TC.Parent = ToggleBtn
-        local TS = Instance.new("UIStroke"); TS.Color = Themes.Accent; TS.Thickness = 2; TS.Parent = ToggleBtn
-        
-        ToggleBtn.MouseButton1Click:Connect(function()
-            local MainFrame = ScreenGui:FindFirstChild("Main")
-            if MainFrame then MainFrame.Visible = not MainFrame.Visible end
-        end)
-    end
-
-    -- Mobile Draggable Helper
-    local function MakeDraggable(obj)
-        local dragging, dragInput, dragStart, startPos
-        
-        obj.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                dragStart = input.Position
-                startPos = obj.Position
-                
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
-                    end
-                end)
-            end
-        end)
-        
-        obj.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-                dragInput = input
-            end
-        end)
-        
-        UIS.InputChanged:Connect(function(input)
-            if input == dragInput and dragging then
-                local delta = input.Position - dragStart
-                obj.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-            end
-        end)
-    end
 
     local Main = Instance.new("Frame")
     Main.Name = "Main"
-    if isMobile then
-        Main.Size = UDim2.new(0.7, 0, 0.7, 0) -- Responsive for mobile
-        Main.Position = UDim2.new(0.15, 0, 0.15, 0)
-    else
-        Main.Size = UDim2.new(0, 650, 0, 480)
-        Main.Position = UDim2.new(0.5, -325, 0.5, -240)
-    end
+    Main.Size = UDim2.new(0, 650, 0, 480) -- Slightly larger for groups
+    Main.Position = UDim2.new(0.5, -325, 0.5, -240)
     Main.BackgroundColor3 = Themes.Background
     Main.BorderSizePixel = 0
     Main.Parent = ScreenGui
@@ -2138,8 +2080,6 @@ function VoidLib:CreateWindow()
     MainStroke.Transparency = 0.5
     MainStroke.Thickness = 1
     MainStroke.Parent = Main
-    
-    MakeDraggable(Main)
 
     -- Snowfall Effect (Enhanced)
     local SnowContainer = Instance.new("Frame")
@@ -2252,13 +2192,7 @@ function VoidLib:CreateWindow()
 
         -- Startup Animation for Main
         Main.Visible = true
-        -- Startup Animation for Main
-        Main.Visible = true
-        if isMobile then
-             TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.7, 0, 0.7, 0)}):Play()
-        else
-             TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 650, 0, 480)}):Play()
-        end
+        TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 650, 0, 480)}):Play()
         TweenService:Create(Main, TweenInfo.new(0.5), {BackgroundTransparency = 0}):Play()
         TweenService:Create(MainStroke, TweenInfo.new(0.5), {Transparency = 0.5}):Play()
     end)
@@ -2563,20 +2497,13 @@ function VoidLib:CreateWindow()
                 end
                 
                 Track.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-                        dragging = true
-                        update(input) 
-                    end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; update(input) end
                 end)
                 UserInputService.InputChanged:Connect(function(input)
-                    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 
-                        update(input) 
-                    end
+                    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then update(input) end
                 end)
                 UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-                        dragging = false 
-                    end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
                 end)
                 return SFrame
             end
