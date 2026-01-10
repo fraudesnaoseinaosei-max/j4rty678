@@ -358,7 +358,7 @@ local AimbotCore = (function()
             -- Check if target changed to reset part
             if currentTarget ~= lastLockedTarget then
                 lastLockedTarget = currentTarget
-                if getgenv().LegitMode then
+                if getgenv().LegitMode and getgenv().RandomParts then
                     activeTargetPart = getRandomPart(currentTarget.Character)
                 else
                     activeTargetPart = "Head"
@@ -366,8 +366,8 @@ local AimbotCore = (function()
             end
             
             -- Legit Mode: Periodically switch target part (Humanization)
-            -- Switches every 0.15s to 0.4s
-            if getgenv().LegitMode and currentTarget and currentTarget.Character then
+            -- Only if RandomParts is enabled
+            if getgenv().LegitMode and getgenv().RandomParts and currentTarget and currentTarget.Character then
                 if not getgenv().LastLegitSwitch then getgenv().LastLegitSwitch = 0 end
                 if tick() - getgenv().LastLegitSwitch > (math.random() * 0.25 + 0.15) then
                     activeTargetPart = getRandomPart(currentTarget.Character)
@@ -377,17 +377,26 @@ local AimbotCore = (function()
 
             if currentTarget.Character then
                 -- Fallback if the specific part is missing (e.g. lost limb)
-                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart)
-                if not targetInst then 
-                    targetInst = currentTarget.Character:FindFirstChild("Head") 
-                end
-
+                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
+                
                 if targetInst then
                     local humanoid = currentTarget.Character:FindFirstChild("Humanoid")
                     if humanoid and humanoid.Health > 0 then
                          local currentCFrame = camera.CFrame
-                         local easing = getgenv().AimbotEasing or 1
-                         camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), easing)
+                         
+                         -- SMOOTHNESS / AIM ASSIST LOGIC
+                         local smoothing = 1
+                         if getgenv().AimAssistMode then
+                             -- Use the Slider Value (1 to 20)
+                             -- 1 = Instant, 20 = Slow/Drag
+                             local smoothVal = getgenv().AimbotSmoothness or 10
+                             smoothing = 1 / smoothVal -- e.g. 1/10 = 0.1 alpha
+                         else
+                             -- Default Instnat or standard easing
+                             smoothing = getgenv().AimbotEasing or 1
+                         end
+                         
+                         camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), smoothing)
                     else
                         currentTarget = nil
                         lastLockedTarget = nil
@@ -3166,6 +3175,21 @@ do
         getgenv().LegitMode = v
     end)
     table.insert(aimbotDependents, legitToggle.Frame)
+    
+    local randomPartsToggle = AimbotGroup:Toggle("Humanizar (Random Parts)", getgenv().RandomParts or false, function(v)
+        getgenv().RandomParts = v
+    end)
+    table.insert(aimbotDependents, randomPartsToggle.Frame)
+    
+    local aimAssistToggle = AimbotGroup:Toggle("Modo Aim Assist (Suave)", getgenv().AimAssistMode or false, function(v)
+        getgenv().AimAssistMode = v
+    end)
+    table.insert(aimbotDependents, aimAssistToggle.Frame)
+    
+    local smoothSlider = AimbotGroup:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
+        getgenv().AimbotSmoothness = v -- 1 = Fast, 20 = Slow (Dividing factor)
+    end)
+    table.insert(aimbotDependents, smoothSlider.Frame)
 
     local cursorToggle = AimbotGroup:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
         AimbotCore:SetCursorAim(v)
