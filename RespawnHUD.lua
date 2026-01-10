@@ -10,9 +10,6 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 
--- Compatibility for Executors without getgenv
-local getgenv = getgenv or function() return _G end
-
 local player = Players.LocalPlayer
 if not player then return end
 
@@ -801,9 +798,8 @@ local ESPCore = (function()
 end)()
 
 -- [5] BOT CORE (AI)
--- [5] BOT CORE (AI)
-local BotCore = {}
-do -- Start BotCore Block
+local BotCore = (function()
+    local BotCore = {}
     local Players = game:GetService("Players")
     local PathfindingService = game:GetService("PathfindingService")
     local RunService = game:GetService("RunService")
@@ -854,13 +850,15 @@ do -- Start BotCore Block
         RaycastDistance = 5,
         StuckThreshold = 2,
         JumpPower = 50,
+        RaycastDistance = 5,
+        StuckThreshold = 2,
+        JumpPower = 50,
+        JumpPower = 50,
         VisionRadius = 50, -- Vision Radius
-        DefenseRadius = 50, -- Radius to trigger defense on Master
+        DefenseRadius = 15, -- Radius to trigger defense on Master
         FlingSafeDistance = 3, -- Distance from Master to disable Fling (Safety)
-        DefenseSafeZone = 0, -- Disabled by default as requested
+        DefenseSafeZone = 20, -- Do not attack/fling enemies if they are this close to Master
         RangedDistance = 100, -- Max distance for Ranged Mode
-        MeleeTriggerDistance = 20, -- Distance to switch/force Melee
-        SelfDefenseRadius = 15, -- Radius to trigger defense on SELF
         UseVirtualClick = false -- Virtual Click for Prison Life etc
     }
     
@@ -1028,69 +1026,6 @@ do -- Start BotCore Block
         end
     end
 
-    -- [HELPER: THREAT SCANNER]
-    -- [HELPER: THREAT SCANNER]
-    function BotCore:ScanForThreats(masterRoot)
-        -- Identify closest threat to Master OR Self
-        local nearestEnemy = nil
-        local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
-        
-        local myRoot = nil
-        if LocalPlayer.Character then myRoot = getRoot(LocalPlayer.Character) end
-
-        -- Gather Targets
-        local allTargets = {}
-        for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
-        for name, _ in pairs(ActiveTargetNPCs) do
-            for _, v in pairs(workspace:GetChildren()) do
-                 if v.Name == name and v:IsA("Model") and v:FindFirstChild("Humanoid") then
-                     table.insert(allTargets, v)
-                 end
-            end
-        end
-
-        for _, enemy in pairs(allTargets) do
-            local isPlayer = enemy:IsA("Player")
-            if enemy ~= LocalPlayer and (not isPlayer or enemy.Name ~= currentTargetName) then
-                local allow = true
-                if isPlayer and DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                
-                -- Team Check
-                if isPlayer and DefenseConfig.TeamCheck then
-                     local master = Players:FindFirstChild(currentTargetName)
-                     if master and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                end
-
-                local char = isPlayer and enemy.Character or enemy
-                local eRoot = getRoot(char)
-                local eHum = getHumanoid(char)
-
-                if allow and char and eRoot and eHum and eHum.Health > 0 then
-                     local dMaster = masterRoot and (eRoot.Position - masterRoot.Position).Magnitude or 9999
-                     local dSelf = myRoot and (eRoot.Position - myRoot.Position).Magnitude or 9999
-                     
-                     -- Safe Zone Check
-                     if dMaster < Config.DefenseSafeZone then
-                          -- Ignore target in Safe Zone
-                     else
-                          -- Score: Lower is better (closer)
-                          -- Prioritize Close to Self (Self Defense)
-                          local score = dMaster
-                          if dSelf < Config.SelfDefenseRadius then
-                              score = dSelf - 100 -- Massive priority boost
-                          end
-                          
-                          if score < nearestDist then
-                              nearestDist = score
-                              nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
-                          end
-                     end
-                end
-            end
-        end
-        return nearestEnemy
-    end
-
     local function UpdateBot()
         local myChar = LocalPlayer.Character
         if not myChar then return end
@@ -1168,11 +1103,31 @@ do -- Start BotCore Block
         
         -- [STATE: IDLE] Guarding / Scanning
         if currentFlingState == FlingState.IDLE then
-                -- Holster Logic
-                if myHum then myHum:UnequipTools() end
+            if isFlingEnabled then
+                -- Scan for Targets
+                for name, _ in pairs(FlingTargets) do
+                    local enemy = Players:FindFirstChild(name)
+                    if enemy and enemy.Character then
+                        local eRoot = getRoot(enemy.Character)
+                        local eHum = getHumanoid(enemy.Character)
+                        if eRoot and eHum and eHum.Health > 0 then
+                            local dist = (eRoot.Position - myRoot.Position).Magnitude
+                            if dist <= Config.VisionRadius then
+                                -- >>> TRIGGER ATTACK >>>
+                                activeFlingTarget = enemy
+                                currentFlingState = FlingState.APPROACH
+                                flingStartTime = tick()
+                                warn("[BotAttack] Target Acquired: " .. name)
+                                return
+                            end
+                        end
+                    end
+                end
 
-
+            end
             
+            -- DEFENSE / AUTO-MELEE MODE LOGIC
+            -- Triggers if Defense OR Melee is enabled.
             -- DEFENSE / AUTO-MELEE / RANGED MODE LOGIC
             -- Triggers if Defense OR Melee OR Ranged is enabled.
             if (isDefenseEnabled or isMeleeEnabled or isRangedEnabled) and currentTargetName and currentTargetName ~= "Nenhum" then
@@ -1181,7 +1136,53 @@ do -- Start BotCore Block
                     local mRoot = getRoot(master.Character)
                     if mRoot then
                         -- Check for enemies near Master
-                        local nearestEnemy = BotCore:ScanForThreats(mRoot)
+                        local nearestEnemy = nil
+                        local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
+                        
+                        -- [Target Gathering]
+                        -- 1. Players
+                        -- 2. NPCs (User Defined)
+                        local allTargets = {}
+                        for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
+                        
+                        -- NPC Check (Configurable)
+                        for _, v in pairs(workspace:GetChildren()) do
+                            if v:IsA("Model") and BotCore.ActiveTargetNPCs[v.Name] and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
+                                table.insert(allTargets, v)
+                            end
+                        end
+
+                        for _, enemy in pairs(allTargets) do
+                            local isPlayer = enemy:IsA("Player")
+                            if enemy ~= LocalPlayer and (not isPlayer or enemy ~= master) then
+                                -- CHECKS
+                                local allow = true
+                                if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                                if DefenseConfig.TeamCheck and isPlayer then
+                                    if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                                    if master.TeamColor and enemy.TeamColor and master.TeamColor == enemy.TeamColor then allow = false end
+                                end
+                                
+                                local char = isPlayer and enemy.Character or enemy
+                                
+                                if allow and char then
+                                    local eRoot = getRoot(char)
+                                    local eHum = getHumanoid(char)
+                                    if eRoot and eHum and eHum.Health > 0 then
+                                        local d = (eRoot.Position - mRoot.Position).Magnitude
+                                        
+                                        if d < Config.DefenseSafeZone then
+                                             -- Skip
+                                        else
+                                            if d < nearestDist then
+                                                nearestDist = d
+                                                nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
                         
                         if nearestEnemy then
                             activeFlingTarget = nearestEnemy.Object
@@ -1193,11 +1194,11 @@ do -- Start BotCore Block
                             local mode = "FLING"
                             
                             -- Logic:
-                            -- 1. If Melee is ON and target is close (<TriggerDist), force MELEE.
-                            -- 2. If Ranged is ON and target is within range (and > TriggerDist or Melee OFF), force RANGED.
+                            -- 1. If Melee is ON and target is close (<20), force MELEE.
+                            -- 2. If Ranged is ON and target is within range (and > 20 or Melee OFF), force RANGED.
                             -- 3. Else fallback to Fling if Defense ON.
 
-                            if isMeleeEnabled and distToTarget < Config.MeleeTriggerDistance then
+                            if isMeleeEnabled and distToTarget < 20 then
                                 mode = "MELEE"
                             elseif isRangedEnabled and distToTarget <= Config.RangedDistance then
                                 mode = "RANGED"
@@ -1547,18 +1548,29 @@ do -- Start BotCore Block
                           end
                           
                           -- Check 2: Target Switching (Is someone closer?)
-                          local bestThreat = BotCore:ScanForThreats(mRoot)
-                          if bestThreat and bestThreat.Object ~= activeFlingTarget and bestThreat.Character then
-                               local dNew = (bestThreat.Character:FindFirstChild("HumanoidRootPart").Position - mRoot.Position).Magnitude
-                               local dCurr = (tRoot.Position - mRoot.Position).Magnitude
-                               
-                               if dNew < (dCurr - 5) then -- 5 Stud Hysteresis
-                                    warn("[BotCombat] Switching to closer threat: " .. bestThreat.Name)
-                                    activeFlingTarget = bestThreat.Object
-                                    -- Should we reset state? Usually just changing target is enough for loop to catch up next frame.
-                                    -- But let's reset to approach if needed? No, MELEE handles it.
-                                    return 
-                               end
+                          for _, enemy in pairs(Players:GetPlayers()) do
+                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget and enemy.Character then
+                                     local eRoot = getRoot(enemy.Character)
+                                     local eHum = getHumanoid(enemy.Character)
+                                     if eRoot and eHum and eHum.Health > 0 then
+                                          local allow = true
+                                          if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                                          if DefenseConfig.TeamCheck then
+                                               if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                                          end
+                                          
+                                          if allow then
+                                              local dNew = (eRoot.Position - mRoot.Position).Magnitude
+                                              local dCurr = (tRoot.Position - mRoot.Position).Magnitude
+                                              
+                                              if dNew < (dCurr - 10) then
+                                                   warn("[BotCombat] Switching to closer target: " .. enemy.Name)
+                                                   activeFlingTarget = enemy
+                                                   return 
+                                              end
+                                          end
+                                     end
+                                end
                           end
 
                           -- Check 3: Friendly Fire LOS (Is Master in front of me?)
@@ -1637,7 +1649,44 @@ do -- Start BotCore Block
              -- lastTargetPos is NOT updated here, to measure from START of fling.
 
              -- [FEATURE: DYNAMIC DEFENSE SWITCHING]
-             -- (Removed: Now handled by Check 2 inside the main logic above)
+             -- Check if a new enemy is closer to Master than current target
+             if isDefenseEnabled and currentTargetName and currentTargetName ~= "Nenhum" then
+                 local master = Players:FindFirstChild(currentTargetName)
+                 if master and master.Character then
+                      local mRoot = getRoot(master.Character)
+                      if mRoot then
+                          -- Check current target dist
+                          local currentDist = (tRoot.Position - mRoot.Position).Magnitude
+                          
+                          -- Scan for better targets
+                          for _, enemy in pairs(Players:GetPlayers()) do
+                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget then
+                                    local allow = true
+                                     if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                                     if DefenseConfig.TeamCheck and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                                     
+                                     if allow and enemy.Character then
+                                         local eRoot = getRoot(enemy.Character)
+                                         local eHum = getHumanoid(enemy.Character)
+                                         if eRoot and eHum and eHum.Health > 0 then
+                                              local d = (eRoot.Position - mRoot.Position).Magnitude
+                                              if d < Config.DefenseSafeZone then
+                                                  -- Safe zone ignored
+                                              elseif d < (currentDist - 5) then -- Must be significantly closer (hysteresis)
+                                                   -- SWITCH TARGET
+                                                   warn("[BotDefense] Switching to closer threat: " .. enemy.Name)
+                                                   activeFlingTarget = enemy
+                                                   currentFlingState = FlingState.APPROACH
+                                                   flingStartTime = tick()
+                                                   return
+                                              end
+                                         end
+                                     end
+                                end
+                          end
+                      end
+                 end
+             end
 
              -- [FEATURE: MASTER SAFETY TP]
              -- If I get too close to Master while flinging, TP BEHIND Master (4 studs)
@@ -1715,25 +1764,17 @@ do -- Start BotCore Block
                  if master and master.Character then
                      local mRoot = getRoot(master.Character)
                      if mRoot then
-                         -- CHECK SWITCHING
-                          local bestThreat = BotCore:ScanForThreats(mRoot)
-                          if bestThreat and bestThreat.Object ~= activeFlingTarget and bestThreat.Character then
-                               local dNew = (bestThreat.Character:FindFirstChild("HumanoidRootPart").Position - mRoot.Position).Magnitude
-                               local dCurr = (tRoot.Position - mRoot.Position).Magnitude
-                               
-                               if dNew < (dCurr - 5) then -- 5 Stud Hysteresis
-                                    warn("[BotRanged] Switching to closer threat: " .. bestThreat.Name)
-                                    activeFlingTarget = bestThreat.Object
-                                    return 
-                               end
-                          end
-
-                         -- Move to Master + Offset
+                         -- Move to Master + Offset (e.g. 5 studs right/left)
+                         -- Simple follow for now, roughly 5 studs away
                          local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
                          if distToMaster > 10 then
                              myHum:MoveTo(mRoot.Position)
                          elseif distToMaster < 4 then
+                              -- Too close? Back up slightly
                               myHum:MoveTo(myRoot.Position + (myRoot.Position - mRoot.Position).Unit * 2)
+                         else
+                              -- Good range, maybe strafe?
+                              myHum:MoveTo(myRoot.Position) -- Stay put roughly? Or micro-move
                          end
                      end
                  end
@@ -1796,10 +1837,7 @@ do -- Start BotCore Block
              
              currentFlingState = FlingState.IDLE
              ResetPhysics()
-             currentFlingState = FlingState.IDLE
-             ResetPhysics()
              myHum.PlatformStand = false
-             myHum:UnequipTools() -- Holster on Return
         end
     end
 
@@ -1936,16 +1974,6 @@ do -- Start BotCore Block
         warn("[BotConfig] Fling Safe Distance: " .. dist)
     end
     
-    function BotCore:SetDefenseRadius(dist)
-        Config.DefenseRadius = dist
-        warn("[BotConfig] Defense Radius: " .. dist)
-    end
-    
-    function BotCore:SetMeleeTriggerDistance(dist)
-        Config.MeleeTriggerDistance = dist
-        warn("[BotConfig] Melee Trigger Dist: " .. dist)
-    end
-    
     function BotCore:SetDefenseSafeZone(dist)
         Config.DefenseSafeZone = dist
         warn("[BotConfig] Defense Safe Zone: " .. dist)
@@ -2007,7 +2035,8 @@ do -- Start BotCore Block
 
 
 
-end -- End BotCore Block
+    return BotCore
+end)()
 
 
 -- ==========================================
@@ -2033,69 +2062,11 @@ function VoidLib:CreateWindow()
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.DisplayOrder = 999999
     ScreenGui.ResetOnSpawn = false
-    
-    local UIS = game:GetService("UserInputService")
-    local isMobile = UIS.TouchEnabled
-    
-    -- Mobile Toggle Button
-    if isMobile then
-        local ToggleBtn = Instance.new("ImageButton")
-        ToggleBtn.Name = "MobileToggle"
-        ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
-        ToggleBtn.Position = UDim2.new(1, -70, 0.5, -25) -- Right Center
-        ToggleBtn.BackgroundColor3 = Themes.Background
-        ToggleBtn.Image = "rbxassetid://6031091004" -- Menu Icon
-        ToggleBtn.Parent = ScreenGui
-        local TC = Instance.new("UICorner"); TC.CornerRadius = UDim.new(1, 0); TC.Parent = ToggleBtn
-        local TS = Instance.new("UIStroke"); TS.Color = Themes.Accent; TS.Thickness = 2; TS.Parent = ToggleBtn
-        
-        ToggleBtn.MouseButton1Click:Connect(function()
-            local MainFrame = ScreenGui:FindFirstChild("Main")
-            if MainFrame then MainFrame.Visible = not MainFrame.Visible end
-        end)
-    end
-
-    -- Mobile Draggable Helper
-    local function MakeDraggable(obj)
-        local dragging, dragInput, dragStart, startPos
-        
-        obj.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                dragStart = input.Position
-                startPos = obj.Position
-                
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
-                    end
-                end)
-            end
-        end)
-        
-        obj.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-                dragInput = input
-            end
-        end)
-        
-        UIS.InputChanged:Connect(function(input)
-            if input == dragInput and dragging then
-                local delta = input.Position - dragStart
-                obj.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-            end
-        end)
-    end
 
     local Main = Instance.new("Frame")
     Main.Name = "Main"
-    if isMobile then
-        Main.Size = UDim2.new(0.7, 0, 0.7, 0) -- Responsive for mobile
-        Main.Position = UDim2.new(0.15, 0, 0.15, 0)
-    else
-        Main.Size = UDim2.new(0, 650, 0, 480)
-        Main.Position = UDim2.new(0.5, -325, 0.5, -240)
-    end
+    Main.Size = UDim2.new(0, 650, 0, 480) -- Slightly larger for groups
+    Main.Position = UDim2.new(0.5, -325, 0.5, -240)
     Main.BackgroundColor3 = Themes.Background
     Main.BorderSizePixel = 0
     Main.Parent = ScreenGui
@@ -2109,8 +2080,6 @@ function VoidLib:CreateWindow()
     MainStroke.Transparency = 0.5
     MainStroke.Thickness = 1
     MainStroke.Parent = Main
-    
-    MakeDraggable(Main)
 
     -- Snowfall Effect (Enhanced)
     local SnowContainer = Instance.new("Frame")
@@ -2223,13 +2192,7 @@ function VoidLib:CreateWindow()
 
         -- Startup Animation for Main
         Main.Visible = true
-        -- Startup Animation for Main
-        Main.Visible = true
-        if isMobile then
-             TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.7, 0, 0.7, 0)}):Play()
-        else
-             TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 650, 0, 480)}):Play()
-        end
+        TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 650, 0, 480)}):Play()
         TweenService:Create(Main, TweenInfo.new(0.5), {BackgroundTransparency = 0}):Play()
         TweenService:Create(MainStroke, TweenInfo.new(0.5), {Transparency = 0.5}):Play()
     end)
@@ -2534,20 +2497,13 @@ function VoidLib:CreateWindow()
                 end
                 
                 Track.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-                        dragging = true
-                        update(input) 
-                    end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; update(input) end
                 end)
                 UserInputService.InputChanged:Connect(function(input)
-                    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 
-                        update(input) 
-                    end
+                    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then update(input) end
                 end)
                 UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-                        dragging = false 
-                    end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
                 end)
                 return SFrame
             end
@@ -3063,539 +3019,534 @@ end
 local Win, SG = VoidLib:CreateWindow()
 
 -- >>> TAB: COMBATE
-do
-    local Combat = Win:Tab("Combate")
+local Combat = Win:Tab("Combate")
 
 
-    local AimbotGroup = Combat:Group("Aimbot Principal")
-    local aimbotDependents = {} -- Store dependent frames
+local AimbotGroup = Combat:Group("Aimbot Principal")
+local aimbotDependents = {} -- Store dependent frames
 
-    local aimbotToggle = AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
-        AimbotCore:SetEnabled(v)
-        -- Toggle visibility of dependents
-        if v then
-            for _, frame in pairs(aimbotDependents) do
-                frame.Visible = true
-            end
-        else
-            for _, frame in pairs(aimbotDependents) do
-                frame.Visible = false
-            end
+local aimbotToggle = AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
+    AimbotCore:SetEnabled(v)
+    -- Toggle visibility of dependents
+    if v then
+        task.wait(0.3) -- Wait for expansion animation
+        for _, frame in pairs(aimbotDependents) do
+            frame.Visible = true
         end
-    end)
-
-    local tCheckToggle = AimbotGroup:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
-        getgenv().TeamCheck = v
-    end)
-    table.insert(aimbotDependents, tCheckToggle.Frame)
-
-    local legitToggle = AimbotGroup:Toggle("Modo Legit", getgenv().LegitMode or false, function(v)
-        getgenv().LegitMode = v
-    end)
-    table.insert(aimbotDependents, legitToggle.Frame)
-
-    local cursorToggle = AimbotGroup:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
-        AimbotCore:SetCursorAim(v)
-    end)
-    table.insert(aimbotDependents, cursorToggle.Frame)
-
-    local function GetServerPlayers()
-        local list = {}
-        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
-            if p ~= game:GetService("Players").LocalPlayer then
-                table.insert(list, p.Name)
-            end
+    else
+        for _, frame in pairs(aimbotDependents) do
+            frame.Visible = false
         end
-        return list
     end
+end)
 
-    local ignoreList = AimbotGroup:InteractiveList("Ignorar Players", GetServerPlayers, function(name)
-        AimbotCore:IgnorePlayer(name)
-    end, function(name)
-        AimbotCore:UnignorePlayer(name)
-    end)
-    table.insert(aimbotDependents, ignoreList)
+local tCheckToggle = AimbotGroup:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
+    getgenv().TeamCheck = v
+end)
+table.insert(aimbotDependents, tCheckToggle.Frame)
 
-    local function GetTeamsList2()
-        local list = {}
-        -- Safety check for Teams service
-        local success, teams = pcall(function() return game:GetService("Teams"):GetTeams() end)
-        if success and teams then
-            for _, t in pairs(teams) do
-                table.insert(list, t.Name)
-            end
+local legitToggle = AimbotGroup:Toggle("Modo Legit", getgenv().LegitMode or false, function(v)
+    getgenv().LegitMode = v
+end)
+table.insert(aimbotDependents, legitToggle.Frame)
+
+local cursorToggle = AimbotGroup:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
+    AimbotCore:SetCursorAim(v)
+end)
+table.insert(aimbotDependents, cursorToggle.Frame)
+
+local function GetServerPlayers()
+    local list = {}
+    for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+        if p ~= game:GetService("Players").LocalPlayer then
+            table.insert(list, p.Name)
         end
-        return list
     end
+    return list
+end
 
-    local ignoreTeamList = AimbotGroup:InteractiveList("Ignorar Time", GetTeamsList2, function(name)
-        AimbotCore:IgnoreTeam(name)
-    end, function(name)
-        AimbotCore:UnignoreTeam(name)
-    end)
-    table.insert(aimbotDependents, ignoreTeamList)
+local ignoreList = AimbotGroup:InteractiveList("Ignorar Players", GetServerPlayers, function(name)
+    AimbotCore:IgnorePlayer(name)
+end, function(name)
+    AimbotCore:UnignorePlayer(name)
+end)
+table.insert(aimbotDependents, ignoreList)
 
-    local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, AimbotCore:GetFOV(), function(v)
-        AimbotCore:SetFOV(v)
-    end)
-    table.insert(aimbotDependents, fovS)
-
-    local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor(getgenv().AimbotEasing * 10), function(v)
-        getgenv().AimbotEasing = v / 10 
-    end)
-    table.insert(aimbotDependents, easingS)
-
-    -- Initialize visibility based on default state
-    local isAimbotEnabled = AimbotCore:IsEnabled()
-    for _, frame in pairs(aimbotDependents) do
-        frame.Visible = isAimbotEnabled
-    end
-
-    local KillAuraGroup = Combat:Group("Kill Aura")
-    local killAuraToggle = KillAuraGroup:Toggle("Kill Player(s)", KillAuraCore:IsEnabled(), function(v)
-        KillAuraCore:SetEnabled(v)
-    end)
-
-    local function GetPlayersList()
-        local list = {"Todos", "Amigos"}
-        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
-            if p ~= game:GetService("Players").LocalPlayer then
-                table.insert(list, p.Name)
-            end
-        end
-        return list
-    end
-
-    local TargetDrop = KillAuraGroup:Dropdown("Nome Kill (Alvo)", GetPlayersList(), "Todos", function(val)
-        KillAuraCore:SetTargetMode(val)
-    end)
-
-    -- Auto Update Dropdown
-    task.spawn(function()
-        while task.wait(5) do
-            -- Only refresh if menu is visible? Optimization.
-            -- But user might verify while opening.
-            TargetDrop:Refresh(GetPlayersList())
-        end
-    end)
-    game:GetService("Players").PlayerAdded:Connect(function() TargetDrop:Refresh(GetPlayersList()) end)
-    game:GetService("Players").PlayerRemoving:Connect(function() TargetDrop:Refresh(GetPlayersList()) end)
-
-    local function GetTeamsList()
-        local list = {"Nada"}
-        for _, t in pairs(game:GetService("Teams"):GetTeams()) do
+local function GetTeamsList()
+    local list = {}
+    -- Safety check for Teams service
+    local success, teams = pcall(function() return game:GetService("Teams"):GetTeams() end)
+    if success and teams then
+        for _, t in pairs(teams) do
             table.insert(list, t.Name)
         end
-        return list
     end
+    return list
+end
 
-    local TeamDrop = KillAuraGroup:Dropdown("Time Kill", GetTeamsList(), "Nada", function(val)
-        KillAuraCore:SetTeamTarget(val)
-    end)
+local ignoreTeamList = AimbotGroup:InteractiveList("Ignorar Time", GetTeamsList, function(name)
+    AimbotCore:IgnoreTeam(name)
+end, function(name)
+    AimbotCore:UnignoreTeam(name)
+end)
+table.insert(aimbotDependents, ignoreTeamList)
 
-    game:GetService("Teams").ChildAdded:Connect(function() TeamDrop:Refresh(GetTeamsList()) end)
-    game:GetService("Teams").ChildRemoved:Connect(function() TeamDrop:Refresh(GetTeamsList()) end)
-end -- End Combat Block
+local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, AimbotCore:GetFOV(), function(v)
+    AimbotCore:SetFOV(v)
+end)
+table.insert(aimbotDependents, fovS)
+
+local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor(getgenv().AimbotEasing * 10), function(v)
+    getgenv().AimbotEasing = v / 10 
+end)
+table.insert(aimbotDependents, easingS)
+
+-- Initialize visibility based on default state
+local isAimbotEnabled = AimbotCore:IsEnabled()
+for _, frame in pairs(aimbotDependents) do
+    frame.Visible = isAimbotEnabled
+end
+
+local KillAuraGroup = Combat:Group("Kill Aura")
+local killAuraToggle = KillAuraGroup:Toggle("Kill Player(s)", KillAuraCore:IsEnabled(), function(v)
+    KillAuraCore:SetEnabled(v)
+end)
+
+local function GetPlayersList()
+    local list = {"Todos", "Amigos"}
+    for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+        if p ~= game:GetService("Players").LocalPlayer then
+            table.insert(list, p.Name)
+        end
+    end
+    return list
+end
+
+local TargetDrop = KillAuraGroup:Dropdown("Nome Kill (Alvo)", GetPlayersList(), "Todos", function(val)
+    KillAuraCore:SetTargetMode(val)
+end)
+
+-- Auto Update Dropdown
+task.spawn(function()
+    while task.wait(5) do
+        -- Only refresh if menu is visible? Optimization.
+        -- But user might verify while opening.
+        TargetDrop:Refresh(GetPlayersList())
+    end
+end)
+game:GetService("Players").PlayerAdded:Connect(function() TargetDrop:Refresh(GetPlayersList()) end)
+game:GetService("Players").PlayerRemoving:Connect(function() TargetDrop:Refresh(GetPlayersList()) end)
+
+local function GetTeamsList()
+    local list = {"Nada"}
+    for _, t in pairs(game:GetService("Teams"):GetTeams()) do
+        table.insert(list, t.Name)
+    end
+    return list
+end
+
+local TeamDrop = KillAuraGroup:Dropdown("Time Kill", GetTeamsList(), "Nada", function(val)
+    KillAuraCore:SetTeamTarget(val)
+end)
+
+game:GetService("Teams").ChildAdded:Connect(function() TeamDrop:Refresh(GetTeamsList()) end)
+game:GetService("Teams").ChildRemoved:Connect(function() TeamDrop:Refresh(GetTeamsList()) end)
 
 -- >>> TAB: VISUAL
-do
-    local Visual = Win:Tab("Visual")
+local Visual = Win:Tab("Visual")
 
-    local ESPGroup = Visual:Group("ESP Jogadores")
-    local espDependents = {} -- Store dependent frames for ESP
+local ESPGroup = Visual:Group("ESP Jogadores")
+local espDependents = {} -- Store dependent frames for ESP
 
-    local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
-        ESPCore:SetEnabled(v)
-        -- Toggle visibility of dependents
-        if v then
-            task.wait(0.3) -- Wait for expansion animation
-            for _, frame in pairs(espDependents) do
-                frame.Visible = true
-            end
-        else
-            for _, frame in pairs(espDependents) do
-                frame.Visible = false
-            end
+local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
+    ESPCore:SetEnabled(v)
+    -- Toggle visibility of dependents
+    if v then
+        task.wait(0.3) -- Wait for expansion animation
+        for _, frame in pairs(espDependents) do
+            frame.Visible = true
         end
-    end)
-
-    local nameToggle = ESPGroup:Toggle("Mostrar Nomes", getgenv().ESPNames, function(v)
-        getgenv().ESPNames = v
-    end)
-    table.insert(espDependents, nameToggle.Frame)
-
-    local healthToggle = ESPGroup:Toggle("Barra de Vida", getgenv().ESPHealth, function(v)
-        getgenv().ESPHealth = v
-    end)
-    table.insert(espDependents, healthToggle.Frame)
-
-    local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", getgenv().ESPTracers, function(v)
-        getgenv().ESPTracers = v
-    end)
-    table.insert(espDependents, tracerToggle.Frame)
-
-    -- Initialize visibility based on default state
-    local isESPEnabled = ESPCore:IsEnabled()
-    for _, frame in pairs(espDependents) do
-        frame.Visible = isESPEnabled
+    else
+        for _, frame in pairs(espDependents) do
+            frame.Visible = false
+        end
     end
+end)
 
-    local HeadGroup = Visual:Group("Cabeças (Headshot)")
-    local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
-        HeadESP:SetEnabled(v)
-    end)
-    HeadGroup:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
-        HeadESP:SetHeadSize(v)
-    end)
-end -- End Visual Block
+local nameToggle = ESPGroup:Toggle("Mostrar Nomes", getgenv().ESPNames, function(v)
+    getgenv().ESPNames = v
+end)
+table.insert(espDependents, nameToggle.Frame)
+
+local healthToggle = ESPGroup:Toggle("Barra de Vida", getgenv().ESPHealth, function(v)
+    getgenv().ESPHealth = v
+end)
+table.insert(espDependents, healthToggle.Frame)
+
+local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", getgenv().ESPTracers, function(v)
+    getgenv().ESPTracers = v
+end)
+table.insert(espDependents, tracerToggle.Frame)
+
+-- Initialize visibility based on default state
+local isESPEnabled = ESPCore:IsEnabled()
+for _, frame in pairs(espDependents) do
+    frame.Visible = isESPEnabled
+end
+
+local HeadGroup = Visual:Group("Cabeças (Headshot)")
+local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
+    HeadESP:SetEnabled(v)
+end)
+HeadGroup:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
+    HeadESP:SetHeadSize(v)
+end)
 
 -- >>> TAB: LOCAL PLAYER
-do
-    local Local = Win:Tab("Local")
-    local CharGroup = Local:Group("Personagem")
-    local respawnToggle = CharGroup:Toggle("Respawn Onde Morreu", RespawnCore:IsEnabled(), function(v)
-        RespawnCore:SetEnabled(v)
-    end)
+local Local = Win:Tab("Local")
+local CharGroup = Local:Group("Personagem")
+local respawnToggle = CharGroup:Toggle("Respawn Onde Morreu", RespawnCore:IsEnabled(), function(v)
+    RespawnCore:SetEnabled(v)
+end)
 
-    local UtilityGroup = Local:Group("Utilidades")
-    UtilityGroup:Bind("Tecla Soltar Cursor", getgenv().UnlockMouseKey, function(key)
-        getgenv().UnlockMouseKey = key
-    end)
-    UtilityGroup:Button("Resetar Cursor (Emergência)", function()
-        MouseUnlocker:SetUnlocked(true)
-        task.wait(0.1)
-        MouseUnlocker:SetUnlocked(false)
-    end)
+local UtilityGroup = Local:Group("Utilidades")
+UtilityGroup:Bind("Tecla Soltar Cursor", getgenv().UnlockMouseKey, function(key)
+    getgenv().UnlockMouseKey = key
+end)
+UtilityGroup:Button("Resetar Cursor (Emergência)", function()
+    MouseUnlocker:SetUnlocked(true)
+    task.wait(0.1)
+    MouseUnlocker:SetUnlocked(false)
+end)
 
-    local AntiAFKGroup = Local:Group("Anti-AFK")
+local AntiAFKGroup = Local:Group("Anti-AFK")
 
-    -- Mini-HUD Creation
-    local AFKHud = Instance.new("Frame")
-    AFKHud.Name = "AFKHud"
-    AFKHud.Size = UDim2.new(0, 220, 0, 100)
-    AFKHud.Position = UDim2.new(0.5, -110, 0.05, 0) -- Top Center-ish
-    AFKHud.BackgroundColor3 = Themes.Background
-    AFKHud.BorderSizePixel = 0
-    AFKHud.Visible = false
-    AFKHud.Parent = SG
-    AFKHud.Active = true
-    -- AFKHud.Draggable = true (Deprecated and causes conflicts)
-    AFKHud.ZIndex = 100 -- Ensure it's above Main
+-- Mini-HUD Creation
+local AFKHud = Instance.new("Frame")
+AFKHud.Name = "AFKHud"
+AFKHud.Size = UDim2.new(0, 220, 0, 100)
+AFKHud.Position = UDim2.new(0.5, -110, 0.05, 0) -- Top Center-ish
+AFKHud.BackgroundColor3 = Themes.Background
+AFKHud.BorderSizePixel = 0
+AFKHud.Visible = false
+AFKHud.Parent = SG
+AFKHud.Active = true
+-- AFKHud.Draggable = true (Deprecated and causes conflicts)
+AFKHud.ZIndex = 100 -- Ensure it's above Main
 
-    -- Custom Dragging for Mini-HUD
-    local draggingAFK, dragInputAFK, dragStartAFK, startPosAFK
-    AFKHud.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            getgenv().IsDraggingMiniHUD = true -- Signal conflict prevention
-            draggingAFK = true
-            dragStartAFK = input.Position
-            startPosAFK = AFKHud.Position
-            
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    draggingAFK = false
-                    getgenv().IsDraggingMiniHUD = false
-                end
-            end)
-        end
-    end)
-
-    AFKHud.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and draggingAFK then
-            local delta = input.Position - dragStartAFK
-            AFKHud.Position = UDim2.new(startPosAFK.X.Scale, startPosAFK.X.Offset + delta.X, startPosAFK.Y.Scale, startPosAFK.Y.Offset + delta.Y)
-        end
-    end) 
-
-    local AFKCorner = Instance.new("UICorner"); AFKCorner.CornerRadius = UDim.new(0, 8); AFKCorner.Parent = AFKHud
-    local AFKStroke = Instance.new("UIStroke"); AFKStroke.Color = Themes.Accent; AFKStroke.Thickness = 1; AFKStroke.Parent = AFKHud
-
-    -- Title
-    local TitleLab = Instance.new("TextLabel")
-    TitleLab.Text = "Anti Afk"
-    TitleLab.Size = UDim2.new(1, 0, 0, 30)
-    TitleLab.Position = UDim2.new(0, 0, 0, 5)
-    TitleLab.BackgroundTransparency = 1
-    TitleLab.Font = Enum.Font.GothamBold
-    TitleLab.TextSize = 18
-    TitleLab.TextColor3 = Themes.Accent
-    TitleLab.Parent = AFKHud
-
-    -- Divider
-    local Div = Instance.new("Frame")
-    Div.Size = UDim2.new(1, -20, 0, 1)
-    Div.Position = UDim2.new(0, 10, 0, 35)
-    Div.BackgroundColor3 = Color3.fromRGB(50,50,55)
-    Div.BorderSizePixel = 0
-    Div.Parent = AFKHud
-
-    -- Status
-    local StatusLab = Instance.new("TextLabel")
-    StatusLab.Text = "Status: Active"
-    StatusLab.Size = UDim2.new(1, 0, 0, 25)
-    StatusLab.Position = UDim2.new(0, 0, 0, 40)
-    StatusLab.BackgroundTransparency = 1
-    StatusLab.Font = Enum.Font.GothamBold
-    StatusLab.TextSize = 16
-    StatusLab.TextColor3 = Themes.Text
-    StatusLab.Parent = AFKHud
-
-    -- Time
-    local TimeLab = Instance.new("TextLabel")
-    TimeLab.Text = "Time: 00:00:00"
-    TimeLab.Size = UDim2.new(1, 0, 0, 25)
-    TimeLab.Position = UDim2.new(0, 0, 0, 65)
-    TimeLab.BackgroundTransparency = 1
-    TimeLab.Font = Enum.Font.Gotham
-    TimeLab.TextSize = 16
-    TimeLab.TextColor3 = Themes.Text
-    TimeLab.Parent = AFKHud
-
-    -- Logic
-    local antiAfkEnabled = false
-    local startTime = os.time() 
-
-    game:GetService("Players").LocalPlayer.Idled:Connect(function()
-        if antiAfkEnabled then
-            local vu = game:GetService("VirtualUser")
-            vu:CaptureController()
-            vu:ClickButton2(Vector2.new())
-        end
-    end)
-
-    local function UpdateTimer()
-        if not AFKHud.Visible then return end
-        local diff = os.time() - startTime
-        local h = math.floor(diff / 3600)
-        local m = math.floor((diff % 3600) / 60)
-        local s = diff % 60
-        TimeLab.Text = string.format("Time: %02d:%02d:%02d", h, m, s)
+-- Custom Dragging for Mini-HUD
+local draggingAFK, dragInputAFK, dragStartAFK, startPosAFK
+AFKHud.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        getgenv().IsDraggingMiniHUD = true -- Signal conflict prevention
+        draggingAFK = true
+        dragStartAFK = input.Position
+        startPosAFK = AFKHud.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                draggingAFK = false
+                getgenv().IsDraggingMiniHUD = false
+            end
+        end)
     end
+end)
 
-    task.spawn(function()
-        while true do
-            UpdateTimer()
-            task.wait(1)
-        end
-    end)
+AFKHud.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement and draggingAFK then
+        local delta = input.Position - dragStartAFK
+        AFKHud.Position = UDim2.new(startPosAFK.X.Scale, startPosAFK.X.Offset + delta.X, startPosAFK.Y.Scale, startPosAFK.Y.Offset + delta.Y)
+    end
+end) 
 
-    AntiAFKGroup:Toggle("Ativar Anti-AFK", false, function(v)
-        antiAfkEnabled = v
-        AFKHud.Visible = v
-    end)
-end -- End Local Block
+local AFKCorner = Instance.new("UICorner"); AFKCorner.CornerRadius = UDim.new(0, 8); AFKCorner.Parent = AFKHud
+local AFKStroke = Instance.new("UIStroke"); AFKStroke.Color = Themes.Accent; AFKStroke.Thickness = 1; AFKStroke.Parent = AFKHud
+
+-- Title
+local TitleLab = Instance.new("TextLabel")
+TitleLab.Text = "Anti Afk"
+TitleLab.Size = UDim2.new(1, 0, 0, 30)
+TitleLab.Position = UDim2.new(0, 0, 0, 5)
+TitleLab.BackgroundTransparency = 1
+TitleLab.Font = Enum.Font.GothamBold
+TitleLab.TextSize = 18
+TitleLab.TextColor3 = Themes.Accent
+TitleLab.Parent = AFKHud
+
+-- Divider
+local Div = Instance.new("Frame")
+Div.Size = UDim2.new(1, -20, 0, 1)
+Div.Position = UDim2.new(0, 10, 0, 35)
+Div.BackgroundColor3 = Color3.fromRGB(50,50,55)
+Div.BorderSizePixel = 0
+Div.Parent = AFKHud
+
+-- Status
+local StatusLab = Instance.new("TextLabel")
+StatusLab.Text = "Status: Active"
+StatusLab.Size = UDim2.new(1, 0, 0, 25)
+StatusLab.Position = UDim2.new(0, 0, 0, 40)
+StatusLab.BackgroundTransparency = 1
+StatusLab.Font = Enum.Font.GothamBold
+StatusLab.TextSize = 16
+StatusLab.TextColor3 = Themes.Text
+StatusLab.Parent = AFKHud
+
+-- Time
+local TimeLab = Instance.new("TextLabel")
+TimeLab.Text = "Time: 00:00:00"
+TimeLab.Size = UDim2.new(1, 0, 0, 25)
+TimeLab.Position = UDim2.new(0, 0, 0, 65)
+TimeLab.BackgroundTransparency = 1
+TimeLab.Font = Enum.Font.Gotham
+TimeLab.TextSize = 16
+TimeLab.TextColor3 = Themes.Text
+TimeLab.Parent = AFKHud
+
+-- Logic
+local antiAfkEnabled = false
+local startTime = os.time() -- Track when script started (or when AFK enabled? User asked "since script executed")
+-- Actually user said "since when you executed the script". So startTime is static global.
+-- Let's define it global if not present, or just use this local one which is effectively global for this module scope.
+
+game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    if antiAfkEnabled then
+        local vu = game:GetService("VirtualUser")
+        vu:CaptureController()
+        vu:ClickButton2(Vector2.new())
+    end
+end)
+
+local function UpdateTimer()
+    if not AFKHud.Visible then return end
+    local diff = os.time() - startTime
+    local h = math.floor(diff / 3600)
+    local m = math.floor((diff % 3600) / 60)
+    local s = diff % 60
+    TimeLab.Text = string.format("Time: %02d:%02d:%02d", h, m, s)
+end
+
+task.spawn(function()
+    while true do
+        UpdateTimer()
+        task.wait(1)
+    end
+end)
+
+AntiAFKGroup:Toggle("Ativar Anti-AFK", false, function(v)
+    antiAfkEnabled = v
+    AFKHud.Visible = v
+end)
 
 -- >>> TAB: PRE-CONFIGS (BotMe)
-do
-    local BotMe = Win:Tab("BotMe")
+local BotMe = Win:Tab("BotMe")
 
-    -- 1. GROUP: GERENCIAMENTO (First)
-    local BotGroup = BotMe:Group("Gerenciamento de Bot")
+-- 1. GROUP: GERENCIAMENTO (First)
+local BotGroup = BotMe:Group("Gerenciamento de Bot")
 
-    local function GetPlayersList()
-        local list = {}
-        for _, v in pairs(Players:GetPlayers()) do
-            if v ~= LocalPlayer then
-                table.insert(list, v.Name)
-            end
+local function GetPlayersList()
+    local list = {}
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer then
+            table.insert(list, v.Name)
         end
-        return list
     end
+    return list
+end
 
-    local botTargetDropdown = BotGroup:Dropdown("Alvo (Seguir)", {"Nenhum"}, "Nenhum", function(v)
-        warn("[UI] Dropdown selected: " .. tostring(v))
-        BotCore:SetTarget(v)
-    end)
+local botTargetDropdown = BotGroup:Dropdown("Alvo (Seguir)", {"Nenhum"}, "Nenhum", function(v)
+    warn("[UI] Dropdown selected: " .. tostring(v))
+    BotCore:SetTarget(v)
+end)
 
-    -- Auto-update Dropdown
-    task.spawn(function()
-        while task.wait(5) do
-            botTargetDropdown:Refresh(GetPlayersList())
-        end
-    end)
-
-    BotGroup:Toggle("Ativar Seguir", false, function(v)
-        BotCore:SetFollowEnabled(v)
-    end)
-
-    BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
-        BotCore:SetDistances(v, v+5)
-    end, function(v) return v .. "/" .. (v+5) end)
-
-    BotGroup:Slider("Teleporte (Max Dist)", 30, 500, 120, function(v)
-        BotCore:SetTeleportDistance(v)
-    end)
-    
-     BotGroup:Slider("Raio Visão (Detecção)", 10, 200, 50, function(v)
-        BotCore:SetVisionRadius(v)
-    end)
-
-    BotGroup:Slider("Raio de Ataque (Defesa)", 10, 150, 40, function(v)
-        BotCore:SetDefenseRadius(v)
-    end)
-
-    BotGroup:Slider("Distância Segura (Fling)", 1, 50, 3, function(v)
-        BotCore:SetFlingSafeDistance(v)
-    end)
-
-    BotGroup:Slider("Zona Segura (Mestre)", 1, 50, 20, function(v)
-        BotCore:SetDefenseSafeZone(v)
-    end)
-
-    BotGroup:Toggle("Modo Defesa (Auto)", false, function(v)
-        BotCore:SetDefenseEnabled(v)
-    end)
-
-    BotGroup:Toggle("Ignorar Aliados (Defesa do Bot)", false, function(v)
-        BotCore:SetDefenseTeamCheck(v)
-    end)
-
-    BotGroup:InteractiveList("Ignorar Players (Defesa)", GetPlayersList, function(name)
-        BotCore:AddDefenseIgnore(name)
-    end, function(name)
-        BotCore:RemoveDefenseIgnore(name)
-    end)
-
-    BotGroup:InteractiveList("Alvo(s) Fling", GetPlayersList, function(name)
-        BotCore:AddFlingTarget(name)
-    end, function(name)
-        BotCore:RemoveFlingTarget(name)
-    end)
-
-    -- 1.5 GROUP: COMBATE (New)
-    local CombatGroup = BotMe:Group("Modo Combate (Melee)")
-
-    CombatGroup:Toggle("Ativar Combate (Auto)", false, function(v)
-        BotCore:SetMeleeEnabled(v)
-    end)
-
-    local npcInputName = ""
-    CombatGroup:Input("Nome do NPC (Workspace)", function(text)
-        npcInputName = text
-    end)
-
-    CombatGroup:Button("Adicionar NPC", function()
-        BotCore:AddTargetNPC(npcInputName)
-    end)
-
-    CombatGroup:Button("Remover NPC", function()
-        BotCore:RemoveTargetNPC(npcInputName)
-    end)
-
-    local function GetNPCListFunc()
-       return BotCore:GetNPCList()
+-- Auto-update Dropdown
+task.spawn(function()
+    while task.wait(5) do
+        botTargetDropdown:Refresh(GetPlayersList())
     end
+end)
 
-    CombatGroup:InteractiveList("NPCs Alvos Ativos", GetNPCListFunc, function(name)
-       -- On Click (maybe remove?)
-       BotCore:RemoveTargetNPC(name)
-    end, function(name)
-       BotCore:RemoveTargetNPC(name)
-    end)
+BotGroup:Toggle("Ativar Seguir", false, function(v)
+    BotCore:SetFollowEnabled(v)
+end)
 
-    -- 1.6 GROUP: RANGED COMBAT (New)
-    local RangedGroup = BotMe:Group("Modo Combate (Ranged)")
+BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
+    BotCore:SetDistances(v, v+5)
+end, function(v) return v .. "/" .. (v+5) end)
 
-    RangedGroup:Toggle("Ativar Longa Distância", false, function(v)
-        BotCore:SetRangedEnabled(v)
-    end)
+BotGroup:Slider("Teleporte (Max Dist)", 30, 500, 120, function(v)
+    BotCore:SetTeleportDistance(v)
+end)
 
-    RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
-        BotCore:SetRangedDistance(v)
-    end)
-    
-     CombatGroup:Slider("Distância Gatilho Melee", 5, 50, 20, function(v)
-        BotCore:SetMeleeTriggerDistance(v)
-    end)
+BotGroup:Slider("Raio de Visão (Ataque)", 10, 500, 50, function(v)
+    BotCore:SetVisionRadius(v)
+end)
 
-    -- 1.7 GROUP: ARMAS E PRIORIDADE (New)
-    local WeaponGroup = BotMe:Group("Armas e Prioridade")
+BotGroup:Slider("Distância Segura (Fling)", 1, 50, 3, function(v)
+    BotCore:SetFlingSafeDistance(v)
+end)
 
-    WeaponGroup:Input("Nome da Arma", function(text)
-        BotCore:AddWeaponPriority(text)
-    end)
+BotGroup:Slider("Zona Segura (Mestre)", 1, 50, 20, function(v)
+    BotCore:SetDefenseSafeZone(v)
+end)
 
-    WeaponGroup:InteractiveList("Lista Prioridade", function() return BotCore:GetWeaponStartList() end, function(name)
-        BotCore:AddWeaponPriority(name) -- Usually redundant but keeps list flow
-    end, function(name)
-        BotCore:RemoveWeaponPriority(name)
-    end)
+BotGroup:Toggle("Modo Defesa (Auto)", false, function(v)
+    BotCore:SetDefenseEnabled(v)
+end)
 
-    WeaponGroup:Toggle("Ativar Clique Virtual", false, function(v)
-        BotCore:SetVirtualClick(v)
-    end)
+BotGroup:Toggle("Ignorar Aliados (Defesa do Bot)", false, function(v)
+    BotCore:SetDefenseTeamCheck(v)
+end)
 
-    -- 2. GROUP: BOTS (Second)
-    local BotsGroup = BotMe:Group("Bots")
+BotGroup:InteractiveList("Ignorar Players (Defesa)", GetPlayersList, function(name)
+    BotCore:AddDefenseIgnore(name)
+end, function(name)
+    BotCore:RemoveDefenseIgnore(name)
+end)
 
-    BotsGroup:Toggle("Seguir Player", false, function(v)
-        BotCore:SetFollowEnabled(v)
-    end)
+BotGroup:InteractiveList("Alvo(s) Fling", GetPlayersList, function(name)
+    BotCore:AddFlingTarget(name)
+end, function(name)
+    BotCore:RemoveFlingTarget(name)
+end)
 
-    BotsGroup:Toggle("Missel player(fling)", false, function(v)
-        BotCore:SetFlingEnabled(v)
-    end)
-end -- End BotMe Block
+-- 1.5 GROUP: COMBATE (New)
+local CombatGroup = BotMe:Group("Modo Combate (Melee)")
+
+CombatGroup:Toggle("Ativar Combate (Auto)", false, function(v)
+    BotCore:SetMeleeEnabled(v)
+end)
+
+local npcInputName = ""
+CombatGroup:Input("Nome do NPC (Workspace)", function(text)
+    npcInputName = text
+end)
+
+CombatGroup:Button("Adicionar NPC", function()
+    BotCore:AddTargetNPC(npcInputName)
+end)
+
+CombatGroup:Button("Remover NPC", function()
+    BotCore:RemoveTargetNPC(npcInputName)
+end)
+
+local function GetNPCListFunc()
+   return BotCore:GetNPCList()
+end
+
+CombatGroup:InteractiveList("NPCs Alvos Ativos", GetNPCListFunc, function(name)
+   -- On Click (maybe remove?)
+   BotCore:RemoveTargetNPC(name)
+end, function(name)
+   BotCore:RemoveTargetNPC(name)
+end)
+
+-- 1.6 GROUP: RANGED COMBAT (New)
+local RangedGroup = BotMe:Group("Modo Combate (Ranged)")
+
+RangedGroup:Toggle("Ativar Longa Distância", false, function(v)
+    BotCore:SetRangedEnabled(v)
+end)
+
+RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
+    BotCore:SetRangedDistance(v)
+end)
+
+-- 1.7 GROUP: ARMAS E PRIORIDADE (New)
+local WeaponGroup = BotMe:Group("Armas e Prioridade")
+
+WeaponGroup:Input("Nome da Arma", function(text)
+    BotCore:AddWeaponPriority(text)
+end)
+
+WeaponGroup:InteractiveList("Lista Prioridade", function() return BotCore:GetWeaponStartList() end, function(name)
+    BotCore:AddWeaponPriority(name) -- Usually redundant but keeps list flow
+end, function(name)
+    BotCore:RemoveWeaponPriority(name)
+end)
+
+WeaponGroup:Toggle("Ativar Clique Virtual", false, function(v)
+    BotCore:SetVirtualClick(v)
+end)
+
+
+
+-- 2. GROUP: BOTS (Second)
+local BotsGroup = BotMe:Group("Bots")
+
+BotsGroup:Toggle("Seguir Player", false, function(v)
+    BotCore:SetFollowEnabled(v)
+end)
+
+BotsGroup:Toggle("Missel player(fling)", false, function(v)
+    BotCore:SetFlingEnabled(v)
+end)
 
 
 -- >>> TAB: CONFIGURAÇÕES
-do
-    local Settings = Win:Tab("Configs")
-    local ManagerGroup = Settings:Group("Gerenciamento")
+local Settings = Win:Tab("Configs")
+local ManagerGroup = Settings:Group("Gerenciamento")
 
-    local function Notify(msg)
-        game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text=msg, Duration=3})
+local function Notify(msg)
+    game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text=msg, Duration=3})
+end
+
+ManagerGroup:Button("Salvar Configurações", function()
+    if writefile then
+        local config = {
+            aimbot = AimbotCore:IsEnabled(),
+            teamCheck = getgenv().TeamCheck,
+            legitMode = getgenv().LegitMode,
+            killAura = KillAuraCore:IsEnabled(),
+            fov = AimbotCore:GetFOV(),
+            esp = ESPCore:IsEnabled(),
+            espNames = getgenv().ESPNames,
+            espTracers = getgenv().ESPTracers,
+            espHealth = getgenv().ESPHealth,
+            headEsp = HeadESP:IsEnabled(),
+            headSize = HeadESP:GetHeadSize(),
+            respawn = RespawnCore:IsEnabled(),
+            unlockKey = getgenv().UnlockMouseKey.Name
+        }
+        writefile("DreeZy_Voidware.json", HttpService:JSONEncode(config))
+        Notify("Configurações salvas!")
+    else
+        Notify("Executor não suporta writefile")
     end
+end)
 
-    ManagerGroup:Button("Salvar Configurações", function()
-        if writefile then
-            local config = {
-                aimbot = AimbotCore:IsEnabled(),
-                teamCheck = getgenv().TeamCheck,
-                legitMode = getgenv().LegitMode,
-                killAura = KillAuraCore:IsEnabled(),
-                fov = AimbotCore:GetFOV(),
-                esp = ESPCore:IsEnabled(),
-                espNames = getgenv().ESPNames,
-                espTracers = getgenv().ESPTracers,
-                espHealth = getgenv().ESPHealth,
-                headEsp = HeadESP:IsEnabled(),
-                headSize = HeadESP:GetHeadSize(),
-                respawn = RespawnCore:IsEnabled(),
-                unlockKey = getgenv().UnlockMouseKey.Name
-            }
-            writefile("DreeZy_Voidware.json", HttpService:JSONEncode(config))
-            Notify("Configurações salvas!")
-        else
-            Notify("Executor não suporta writefile")
+ManagerGroup:Button("Carregar Configurações", function()
+    if isfile and isfile("DreeZy_Voidware.json") then
+        local config = HttpService:JSONDecode(readfile("DreeZy_Voidware.json"))
+        if config then
+            -- Update Controls (Visual + Logic)
+            aimbotToggle.Set(config.aimbot)
+            tCheckToggle.Set(config.teamCheck)
+            legitToggle.Set(config.legitMode or false)
+            killAuraToggle.Set(config.killAura or false)
+            
+            espToggle.Set(config.esp)
+            nameToggle.Set(config.espNames or false)
+            tracerToggle.Set(config.espTracers or false)
+            healthToggle.Set(config.espHealth or false)
+            
+            headToggle.Set(config.headEsp)
+            
+            respawnToggle.Set(config.respawn)
+            
+            AimbotCore:SetFOV(config.fov)
+            HeadESP:SetHeadSize(config.headSize)
+            
+            if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
+            Notify("Configurações carregadas!")
         end
-    end)
+    else
+        Notify("Nenhum save encontrado")
+    end
+end)
 
-    ManagerGroup:Button("Carregar Configurações", function()
-        if isfile and isfile("DreeZy_Voidware.json") then
-            local config = HttpService:JSONDecode(readfile("DreeZy_Voidware.json"))
-            if config then
-                -- Note: Toggles are local to other scopes, so we cannot update them directly here easily unless we exposed them or use a global registry.
-                -- For now, we just notify. Logic is updated via Set... functions if we added them.
-                -- To fix this properly, we would need to expose the toggles.
-                Notify("Configurações Carregadas (Lógica)")
-                
-                -- Update Logic directly
-                if config.aimbot ~= nil then AimbotCore:SetEnabled(config.aimbot) end
-                if config.teamCheck ~= nil then getgenv().TeamCheck = config.teamCheck end
-                if config.esp ~= nil then ESPCore:SetEnabled(config.esp) end
-                -- ... etc
-                
-                if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
-            end
-        else
-            Notify("Nenhum save encontrado")
-        end
-    end)
-
-    local InfoGroup = Settings:Group("Informações")
-    InfoGroup:Button("Criado por DreeZy", function() setclipboard("DreeZy") end)
-end -- End Settings Block
+local InfoGroup = Settings:Group("Informações")
+InfoGroup:Button("Criado por DreeZy", function() setclipboard("DreeZy") end)
 
 Notify("DreeZy Voidware V2 Carregado!")
 Notify("Use [Right Shift] para abrir/fechar o Menu!")
