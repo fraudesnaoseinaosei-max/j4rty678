@@ -1053,7 +1053,6 @@ do -- Start BotCore Block
             -- Object at feet.
             if not highResult then
                  -- Clear head space? Optional: Check mid.
-                 -- If Mid is clear (it's a small step), Humanoid steps up auto.
                  -- If Mid is BLOCKED (it's a wall/fence), we MUST jump.
                  if midResult then
                       hum.Jump = true
@@ -1064,7 +1063,13 @@ do -- Start BotCore Block
                            hum.Jump = true
                       end
                  end
+            elseif midResult then
+                 -- Wall in front (Mid + High blocked maybe). Jump anyway to try climb.
+                 hum.Jump = true
             end
+        elseif midResult and not highResult then
+             -- Floating obstacle? Jump.
+             hum.Jump = true
         end
     end
 
@@ -1532,13 +1537,21 @@ do -- Start BotCore Block
                   end
              else
                   -- CONTACT PHASE (The Touch)
-                  -- "Touch Walkfling" isn't enough? Use "Velocity Ramming".
-                  -- Push *THROUGH* the target. MoveTo stops at surface. Velocity ignores it until physics solves it (FLING).
+                  -- "Touch Walkfling": High rotation + Walking into target.
                   
-                  -- 1. Aim straight at them
-                  myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
+                  -- 1. STABILIZERS (Fix "Falling Down")
+                  -- Destroy old Gyro if exists to refresh or create new
+                  if not myRoot:FindFirstChild("FlingGyro") then
+                      local bg = Instance.new("BodyGyro")
+                      bg.Name = "FlingGyro"
+                      bg.MaxTorque = Vector3.new(100000, 0, 100000) -- Only stabilize X/Z (Tilt), let Y spin free
+                      bg.P = 3000
+                      bg.D = 100
+                      bg.CFrame = CFrame.new() -- Level
+                      bg.Parent = myRoot
+                  end
                   
-                  -- 2. Force Physics Overlap (The secret sauce of fling)
+                  -- 2. Force Physics Overlap
                   -- 15000 Spin + 2000 Speed Push = Ejection
                   myRoot.AssemblyAngularVelocity = Vector3.new(0, 15000, 0)
                   myRoot.AssemblyLinearVelocity = (tRoot.Position - myRoot.Position).Unit * 1000 + Vector3.new(0, 2, 0)
@@ -1649,19 +1662,20 @@ do -- Start BotCore Block
                   end
              end
              
-             -- Aim & Move
-             if safeToAttack then
-                 -- FREEZE ROTATION CONTROL
-                 myHum.AutoRotate = false
-                 
-                 -- Look at Target (Horizontal Only)
-                 local lookPos = Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z)
-                 myRoot.CFrame = CFrame.lookAt(myRoot.Position, lookPos)
-                 
-                 myHum:MoveTo(tRoot.Position)
-             else
-                 myHum.AutoRotate = true 
-             end
+              -- Aim & Move
+              if safeToAttack then
+                  -- [FIX: SPINNING] 
+                  -- Do NOT force CFrame lookAt. Let AutoRotate handle it naturally.
+                  myHum.AutoRotate = true
+                  
+                  -- Simple direct movement for melee
+                  myHum:MoveTo(tRoot.Position)
+                  
+                  -- Optional: If very close, face them explicitly?
+                  -- No, AutoRotate is smoother.
+              else
+                  myHum.AutoRotate = true 
+              end
 
              -- --- SAFETY CHECK ---
              local flingDuration = tick() - flingStartTime
