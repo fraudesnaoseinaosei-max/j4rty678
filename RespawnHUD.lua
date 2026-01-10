@@ -1005,25 +1005,46 @@ do -- Start BotCore Block
     -- [HELPER: MOVEMENT]
     local function SmartAutoJump(hum, root)
         if not hum or not root then return end
-        if hum.MoveDirection.Magnitude > 0.1 then
-            -- Raycast Forward (Waist/Leg height)
-            local origin = root.Position - Vector3.new(0, 1.5, 0) -- Lower body
-            local dir = hum.MoveDirection * 2 -- 2 studs forward
-            
-            local params = RaycastParams.new()
-            params.FilterDescendantsInstances = {LocalPlayer.Character}
-            
-            local result = workspace:Raycast(origin, dir, params)
-            if result then
-                -- Obstacle hit!
-                -- Check if it's low enough to jump (raycast higher)
-                local higherOrigin = root.Position + Vector3.new(0, 0, 0) -- Hips/Navel
-                local higherResult = workspace:Raycast(higherOrigin, dir, params)
-                
-                if not higherResult then
-                     -- Low obstacle, JUMP!
-                     hum.Jump = true
-                end
+        
+        -- Only jump if moving
+        if hum.MoveDirection.Magnitude < 0.1 then return end
+        
+        -- Raycast Params
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {LocalPlayer.Character}
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        
+        local dir = hum.MoveDirection * 3 -- Look ahead 3 studs
+        local pos = root.Position
+        
+        -- 1. Check Low (Knee height - Step Check)
+        -- If this hits, we might need to jump if it's not just a tiny bump
+        local lowOrigin = pos - Vector3.new(0, 2.5, 0) -- Near feet
+        local lowResult = workspace:Raycast(lowOrigin, dir, params)
+        
+        -- 2. Check Mid (Waist height)
+        local midOrigin = pos - Vector3.new(0, 0, 0)
+        local midResult = workspace:Raycast(midOrigin, dir, params)
+        
+        -- 3. Check High (Head height) to see if we can fit
+        local highOrigin = pos + Vector3.new(0, 1.5, 0)
+        local highResult = workspace:Raycast(highOrigin, dir, params)
+        
+        if lowResult then
+            -- Object at feet.
+            if not highResult then
+                 -- Clear head space? Optional: Check mid.
+                 -- If Mid is clear (it's a small step), Humanoid steps up auto.
+                 -- If Mid is BLOCKED (it's a wall/fence), we MUST jump.
+                 if midResult then
+                      hum.Jump = true
+                 else
+                      -- It is a low obstacle. If Humanoid isn't handling it (stuck), jump.
+                      -- We can check velocity?
+                      if root.AssemblyLinearVelocity.Magnitude < 2 then
+                           hum.Jump = true
+                      end
+                 end
             end
         end
     end
@@ -1271,17 +1292,14 @@ do -- Start BotCore Block
                  
                  if currentWaypoints and currentWaypointIndex <= #currentWaypoints then
                      local wp = currentWaypoints[currentWaypointIndex]
-                     local avoidance = GetObstacleAvoidanceVector(myRoot)
-                     if avoidance == "JUMP" then myHum.Jump = true; myHum:MoveTo(wp.Position)
-                     elseif avoidance then
-                         local desiredDir = (wp.Position - myRoot.Position).Unit
-                         local finalDir = (desiredDir + avoidance).Unit
-                         myHum:MoveTo(myRoot.Position + finalDir * 5)
-                     else
-                         if wp.Action == Enum.PathWaypointAction.Jump then myHum.Jump = true end
-                         myHum:MoveTo(wp.Position)
-                     end
-                     if (myRoot.Position - wp.Position).Magnitude < 5 then currentWaypointIndex = currentWaypointIndex + 1 end
+                     -- Only use avoidance if NOT on a computed path (Pathfinding handles obstacles)
+                     -- Or if we are stuck? For now, trust Pathfinding.
+                     
+                     if wp.Action == Enum.PathWaypointAction.Jump then myHum.Jump = true end
+                     myHum:MoveTo(wp.Position)
+                     
+                     -- Threshold increased to 6 to prevent spinning/overshoot
+                     if (myRoot.Position - wp.Position).Magnitude < 6 then currentWaypointIndex = currentWaypointIndex + 1 end
                  else
                      MoveTo(goalPos)
                  end
