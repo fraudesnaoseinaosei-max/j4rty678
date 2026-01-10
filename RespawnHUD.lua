@@ -987,7 +987,10 @@ local BotCore = (function()
          local myChar = LocalPlayer.Character
          if myChar then
              local hum = getHumanoid(myChar)
-             if hum then hum.PlatformStand = false end
+             if hum then 
+                 hum.PlatformStand = false 
+                 hum.AutoRotate = true 
+             end
              for _, p in pairs(myChar:GetChildren()) do
                  if p:IsA("BasePart") then p.CanCollide = true end
              end
@@ -1012,6 +1015,7 @@ local BotCore = (function()
              end
              -- Fix PlatformStand being stuck
              if myHum.PlatformStand then myHum.PlatformStand = false end
+             if not myHum.AutoRotate then myHum.AutoRotate = true end
         end
 
         local function UpdateCollision(targetChar)
@@ -1564,8 +1568,16 @@ local BotCore = (function()
              
              -- Aim & Move
              if safeToAttack then
-                 myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z))
+                 -- FREEZE ROTATION CONTROL
+                 myHum.AutoRotate = false
+                 
+                 -- Look at Target (Horizontal Only)
+                 local lookPos = Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z)
+                 myRoot.CFrame = CFrame.lookAt(myRoot.Position, lookPos)
+                 
                  myHum:MoveTo(tRoot.Position)
+             else
+                 myHum.AutoRotate = true 
              end
 
              -- --- SAFETY CHECK ---
@@ -1735,7 +1747,9 @@ local BotCore = (function()
              
              -- 3. Aim & Attack
              -- Force Look at Target
-             myRoot.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z))
+             myHum.AutoRotate = false
+             local lookPos = Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z)
+             myRoot.CFrame = CFrame.lookAt(myRoot.Position, lookPos)
              
              -- Master Safety (LOS Check)
              local safeToShoot = true
@@ -1766,6 +1780,8 @@ local BotCore = (function()
 
         -- [STATE: RETURNING] Fly back (Fallback / Deprecated by TP)
         elseif currentFlingState == FlingState.RETURNING then
+             -- Re-enable AutoRotate
+             myHum.AutoRotate = true
              -- We can keep this as a failsafe, or just TP. Let's TP for consistency.
              local targetPlr = Players:FindFirstChild(currentTargetName)
              local ownerRoot = nil
