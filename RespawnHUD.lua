@@ -850,13 +850,15 @@ local BotCore = (function()
         RaycastDistance = 5,
         StuckThreshold = 2,
         JumpPower = 50,
+        RaycastDistance = 5,
+        StuckThreshold = 2,
+        JumpPower = 50,
+        JumpPower = 50,
         VisionRadius = 50, -- Vision Radius
-        DefenseRadius = 50, -- Radius to trigger defense on Master
+        DefenseRadius = 15, -- Radius to trigger defense on Master
         FlingSafeDistance = 3, -- Distance from Master to disable Fling (Safety)
-        DefenseSafeZone = 0, -- Disabled by default as requested
+        DefenseSafeZone = 20, -- Do not attack/fling enemies if they are this close to Master
         RangedDistance = 100, -- Max distance for Ranged Mode
-        MeleeTriggerDistance = 20, -- Distance to switch/force Melee
-        SelfDefenseRadius = 15, -- Radius to trigger defense on SELF
         UseVirtualClick = false -- Virtual Click for Prison Life etc
     }
     
@@ -1025,63 +1027,61 @@ local BotCore = (function()
     end
 
     -- [HELPER: THREAT SCANNER]
-    -- [HELPER: THREAT SCANNER]
     function BotCore:ScanForThreats(masterRoot)
-        -- Identify closest threat to Master OR Self
+        if not masterRoot then return nil end
+        
         local nearestEnemy = nil
         local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
         
-        local myRoot = nil
-        if LocalPlayer.Character then myRoot = getRoot(LocalPlayer.Character) end
-
-        -- Gather Targets
+        -- [Target Gathering]
+        -- 1. Players
+        -- 2. NPCs (User Defined)
         local allTargets = {}
         for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
-        for name, _ in pairs(ActiveTargetNPCs) do
-            for _, v in pairs(workspace:GetChildren()) do
-                 if v.Name == name and v:IsA("Model") and v:FindFirstChild("Humanoid") then
-                     table.insert(allTargets, v)
-                 end
+        
+        -- NPC Check (Configurable)
+        for _, v in pairs(workspace:GetChildren()) do
+            if v:IsA("Model") and BotCore.ActiveTargetNPCs[v.Name] and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
+                table.insert(allTargets, v)
             end
         end
 
         for _, enemy in pairs(allTargets) do
             local isPlayer = enemy:IsA("Player")
             if enemy ~= LocalPlayer and (not isPlayer or enemy.Name ~= currentTargetName) then
+                -- CHECKS
                 local allow = true
                 if isPlayer and DefenseConfig.IgnoreList[enemy.Name] then allow = false end
                 
-                -- Team Check
-                if isPlayer and DefenseConfig.TeamCheck then
-                     local master = Players:FindFirstChild(currentTargetName)
-                     if master and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                end
-
                 local char = isPlayer and enemy.Character or enemy
                 local eRoot = getRoot(char)
                 local eHum = getHumanoid(char)
-
+                
                 if allow and char and eRoot and eHum and eHum.Health > 0 then
-                     local dMaster = masterRoot and (eRoot.Position - masterRoot.Position).Magnitude or 9999
-                     local dSelf = myRoot and (eRoot.Position - myRoot.Position).Magnitude or 9999
-                     
-                     -- Safe Zone Check
-                     if dMaster < Config.DefenseSafeZone then
-                          -- Ignore target in Safe Zone
-                     else
-                          -- Score: Lower is better (closer)
-                          -- Prioritize Close to Self (Self Defense)
-                          local score = dMaster
-                          if dSelf < Config.SelfDefenseRadius then
-                              score = dSelf - 100 -- Massive priority boost
-                          end
-                          
-                          if score < nearestDist then
-                              nearestDist = score
-                              nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
-                          end
-                     end
-                end
+                    -- TEAM CHECK (Only for players usually)
+                    if isPlayer and DefenseConfig.TeamCheck then
+                         local master = Players:FindFirstChild(currentTargetName)
+                         if master then
+                             if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                         end
+                    end
+                    
+                    if allow then
+                         local d = (eRoot.Position - masterRoot.Position).Magnitude
+                         
+                         if d < Config.DefenseSafeZone then
+                              -- [SAFE ZONE RESTORED]
+                              -- Skip target if inside Safe Zone (Passive mode/Bodyguard boundary)
+                              -- This makes the "Zona Segura" slider work again.
+                         else
+                             -- Update Nearest
+                             if d < nearestDist then
+                                 nearestDist = d
+                                 nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
+                             end
+                         end
+                    end
+                 end
             end
         end
         return nearestEnemy
@@ -1189,11 +1189,11 @@ local BotCore = (function()
                             local mode = "FLING"
                             
                             -- Logic:
-                            -- 1. If Melee is ON and target is close (<TriggerDist), force MELEE.
-                            -- 2. If Ranged is ON and target is within range (and > TriggerDist or Melee OFF), force RANGED.
+                            -- 1. If Melee is ON and target is close (<20), force MELEE.
+                            -- 2. If Ranged is ON and target is within range (and > 20 or Melee OFF), force RANGED.
                             -- 3. Else fallback to Fling if Defense ON.
 
-                            if isMeleeEnabled and distToTarget < Config.MeleeTriggerDistance then
+                            if isMeleeEnabled and distToTarget < 20 then
                                 mode = "MELEE"
                             elseif isRangedEnabled and distToTarget <= Config.RangedDistance then
                                 mode = "RANGED"
@@ -1935,11 +1935,6 @@ local BotCore = (function()
     function BotCore:SetDefenseRadius(dist)
         Config.DefenseRadius = dist
         warn("[BotConfig] Defense Radius: " .. dist)
-    end
-    
-    function BotCore:SetMeleeTriggerDistance(dist)
-        Config.MeleeTriggerDistance = dist
-        warn("[BotConfig] Melee Trigger Dist: " .. dist)
     end
     
     function BotCore:SetDefenseSafeZone(dist)
@@ -3494,10 +3489,6 @@ end)
 
 RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
     BotCore:SetRangedDistance(v)
-end)
-
-CombatGroup:Slider("Distância Gatilho Melee", 5, 50, 20, function(v)
-    BotCore:SetMeleeTriggerDistance(v)
 end)
 
 -- 1.7 GROUP: ARMAS E PRIORIDADE (New)
