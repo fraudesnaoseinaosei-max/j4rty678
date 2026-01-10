@@ -1001,6 +1001,8 @@ local BotCore = (function()
              for _, p in pairs(myChar:GetChildren()) do
                  if p:IsA("BasePart") then p.CanCollide = true end
              end
+             -- Fix PlatformStand being stuck
+             if myHum.PlatformStand then myHum.PlatformStand = false end
         end
 
         local function UpdateCollision(targetChar)
@@ -1230,8 +1232,13 @@ local BotCore = (function()
                  myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
              end
 
-        -- [STATE: FLINGING] Spin & Neutralize
+     -- [STATE: FLINGING] Spin & Neutralize
         elseif currentFlingState == FlingState.FLINGING then
+             -- [v2 FIX] FORCE PLATFORMSTAND FALSE so MoveTo works and we don't trip!
+             if myHum.PlatformStand then myHum.PlatformStand = false end
+             -- Also force Physics state to be safe
+             -- myHum:ChangeState(Enum.HumanoidStateType.Physics) -- sometimes helpful
+             
              if not activeFlingTarget or not activeFlingTarget.Character then
                  currentFlingState = FlingState.RETURNING
                  return
