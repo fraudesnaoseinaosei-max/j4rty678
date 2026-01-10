@@ -697,6 +697,10 @@ local ESPCore = (function()
                 drawings.HealthFg.Visible = false
                 drawings.Tracer.Visible = false
             end
+            -- State Machine continued...
+            -- [AUTO JUMP]
+            SmartAutoJump(myHum, myRoot)
+            
             return
         end
         local camera = workspace.CurrentCamera
@@ -858,7 +862,8 @@ local BotCore = (function()
         DefenseRadius = 15, -- Radius to trigger defense on Master
         FlingSafeDistance = 3, -- Distance from Master to disable Fling (Safety)
         DefenseSafeZone = 20, -- Do not attack/fling enemies if they are this close to Master
-        RangedDistance = 100 -- Max distance for Ranged Mode
+        RangedDistance = 100, -- Max distance for Ranged Mode
+        UseVirtualClick = false -- Virtual Click for Prison Life etc
     }
     
     local FlingTargets = {} -- List of targets to attack
@@ -866,7 +871,9 @@ local BotCore = (function()
         ["Noob"] = true, -- Default for testing
         ["Dummy"] = true
     }
+    local WeaponPriority = {}
     BotCore.ActiveTargetNPCs = ActiveTargetNPCs -- Expose
+    BotCore.WeaponPriority = WeaponPriority -- Expose
 
     local function getRoot(char)
         return char and char:FindFirstChild("HumanoidRootPart")
@@ -1495,13 +1502,10 @@ local BotCore = (function()
              end
              
              -- 1. Equip Weapon (First Tool)
-             local tool = myChar:FindFirstChildOfClass("Tool")
-             if not tool then
-                 local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-                 if bpTool then 
-                     myHum:EquipTool(bpTool) 
-                     tool = bpTool
-                 end
+             -- 1. Equip Weapon (Priority)
+             local tool = BotCore:GetPriorityWeapon(myChar)
+             if tool and tool.Parent ~= myChar then
+                 myHum:EquipTool(tool)
              end
              
              -- 2. Master Safety Logic (LOS)
@@ -1562,8 +1566,17 @@ local BotCore = (function()
              end
              
              -- 3. Chase & Attack
+             -- 3. Chase & Attack
              if tool and safeToAttack then
-                  tool:Activate()
+                  if Config.UseVirtualClick then
+                      pcall(function()
+                          local VirtualUser = game:GetService("VirtualUser")
+                          VirtualUser:Button1Down(Vector2.new(0,0))
+                          task.delay(0.1, function() VirtualUser:Button1Up(Vector2.new(0,0)) end)
+                      end)
+                  else
+                      tool:Activate()
+                  end
              end
              
              -- Aim & Move
@@ -1713,13 +1726,10 @@ local BotCore = (function()
              end
              
              -- 1. Equip Weapon
-             local tool = myChar:FindFirstChildOfClass("Tool")
-             if not tool then
-                 local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-                 if bpTool then 
-                     myHum:EquipTool(bpTool) 
-                     tool = bpTool
-                 end
+             -- 1. Equip Weapon (Priority)
+             local tool = BotCore:GetPriorityWeapon(myChar)
+             if tool and tool.Parent ~= myChar then
+                 myHum:EquipTool(tool)
              end
              
              -- 2. Movement: Stay near Master (Orbit/Follow)
@@ -1769,13 +1779,22 @@ local BotCore = (function()
                            -- If Master is in front (cone > 0.5 ~ 60deg) AND closer than enemy
                            if dot > 0.5 and distM < distE then
                                safeToShoot = false
+                               safeToAttack = false
                            end
                       end
                  end
              end
              
-             if safeToShoot and tool then
-                 tool:Activate()
+             if safeToAttack and tool then
+                  if Config.UseVirtualClick then
+                      pcall(function()
+                          local VirtualUser = game:GetService("VirtualUser")
+                          VirtualUser:Button1Down(Vector2.new(0,0))
+                          task.delay(0.1, function() VirtualUser:Button1Up(Vector2.new(0,0)) end)
+                      end)
+                  else
+                      tool:Activate()
+                  end
              end
 
         -- [STATE: RETURNING] Fly back (Fallback / Deprecated by TP)
@@ -1939,6 +1958,80 @@ local BotCore = (function()
         -- Redirect legacy calls to Follow logic
         -- This ensures "Seguir Player" behavior is preserved if called via old methods
         self:SetFollowEnabled(state)
+    end
+
+    -- [HELPER: WEAPON & CLICK]
+    function BotCore:GetPriorityWeapon(char)
+        if not char then return nil end
+        local inv = LocalPlayer.Backpack:GetChildren()
+        local equipped = char:FindFirstChildOfClass("Tool")
+        
+        -- Merge inventory for search
+        local candidates = {}
+        if equipped then table.insert(candidates, equipped) end
+        for _, t in pairs(inv) do if t:IsA("Tool") then table.insert(candidates, t) end end
+        
+        -- Order Check
+        for _, name in pairs(WeaponPriority) do
+            for _, t in pairs(candidates) do
+                if t.Name == name then return t end
+            end
+        end
+        
+        -- Fallback: Equipped or First in bag
+        return equipped or candidates[1]
+    end
+    
+    function BotCore:AddWeaponPriority(name)
+        -- check dupe
+        for _, v in pairs(WeaponPriority) do if v == name then return end end
+        table.insert(WeaponPriority, name)
+        warn("[BotConfig] Added Weapon Priority: " .. name)
+    end
+    
+    function BotCore:RemoveWeaponPriority(name)
+        for i, v in pairs(WeaponPriority) do 
+            if v == name then 
+                table.remove(WeaponPriority, i) 
+                warn("[BotConfig] Removed Weapon Priority: " .. name)
+                return
+            end 
+        end
+    end
+    
+    function BotCore:GetWeaponStartList()
+        return WeaponPriority
+    end
+    
+    function BotCore:SetVirtualClick(state)
+        Config.UseVirtualClick = state
+        warn("[BotConfig] Virtual Click: " .. tostring(state))
+    end
+
+    -- [HELPER: MOVEMENT]
+    local function SmartAutoJump(hum, root)
+        if not hum or not root then return end
+        if hum.MoveDirection.Magnitude > 0.1 then
+            -- Raycast Forward (Waist/Leg height)
+            local origin = root.Position - Vector3.new(0, 1.5, 0) -- Lower body
+            local dir = hum.MoveDirection * 2 -- 2 studs forward
+            
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = {LocalPlayer.Character}
+            
+            local result = workspace:Raycast(origin, dir, params)
+            if result then
+                -- Obstacle hit!
+                -- Check if it's low enough to jump (raycast higher)
+                local higherOrigin = root.Position + Vector3.new(0, 0, 0) -- Hips/Navel
+                local higherResult = workspace:Raycast(higherOrigin, dir, params)
+                
+                if not higherResult then
+                     -- Low obstacle, JUMP!
+                     hum.Jump = true
+                end
+            end
+        end
     end
 
     return BotCore
@@ -3354,8 +3447,24 @@ RangedGroup:Toggle("Ativar Longa Distância", false, function(v)
     BotCore:SetRangedEnabled(v)
 end)
 
-RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
     BotCore:SetRangedDistance(v)
+end)
+
+-- 1.7 GROUP: ARMAS E PRIORIDADE (New)
+local WeaponGroup = BotMe:Group("Armas e Prioridade")
+
+WeaponGroup:Input("Nome da Arma", function(text)
+    BotCore:AddWeaponPriority(text)
+end)
+
+WeaponGroup:InteractiveList("Lista Prioridade", function() return BotCore:GetWeaponStartList() end, function(name)
+    BotCore:AddWeaponPriority(name) -- Usually redundant but keeps list flow
+end, function(name)
+    BotCore:RemoveWeaponPriority(name)
+end)
+
+WeaponGroup:Toggle("Ativar Clique Virtual", false, function(v)
+    BotCore:SetVirtualClick(v)
 end)
 
 
