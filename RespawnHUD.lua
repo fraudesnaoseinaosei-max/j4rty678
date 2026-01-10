@@ -1241,6 +1241,24 @@ local BotCore = (function()
              local tRoot = getRoot(activeFlingTarget.Character)
              local tHum = getHumanoid(activeFlingTarget.Character)
              if not tRoot then currentFlingState = FlingState.RETURNING return end
+             
+             -- [DYNAMIC SAFE ZONE ABORT]
+             -- Check if enemy ran back to the Master. If so, ABORT to protect Master.
+             if isDefenseEnabled and currentTargetName and currentTargetName ~= "Nenhum" then
+                local master = Players:FindFirstChild(currentTargetName)
+                if master and master.Character then
+                     local mRoot = getRoot(master.Character)
+                     if mRoot then
+                         local distEnemyToMaster = (tRoot.Position - mRoot.Position).Magnitude
+                         if distEnemyToMaster < Config.DefenseSafeZone then
+                              warn("[BotDefense] Enemy entered Safe Zone! Aborting attack.")
+                              activeFlingTarget = nil
+                              currentFlingState = FlingState.RETURNING
+                              return 
+                         end
+                     end
+                end
+             end
 
              -- [!] ENABLE COLLISIONS FOR FLING TO WORK
              for _, p in pairs(myChar:GetChildren()) do
@@ -1315,9 +1333,15 @@ local BotCore = (function()
              
              -- Position: Walk INTO them CONSTANTLY
              -- Force movement even if close
+             -- Position: Walk INTO them CONSTANTLY
+             -- Force movement even if close
              -- [AGGRESSIVE MOVEMENT FIX]
              -- Instead of moving TO the target, move PAST them to ensure we push through.
-             myHum:MoveTo(tRoot.Position + (tRoot.Position - myRoot.Position).Unit * 10)
+             local pushDir = (tRoot.Position - myRoot.Position).Unit
+             -- Handle NaN (Not a Number) if positions are identical (overlap)
+             if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
+             
+             myHum:MoveTo(tRoot.Position + pushDir * 10)
              
              -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
              if distFromMe > 5 then
