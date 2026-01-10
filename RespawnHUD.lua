@@ -358,7 +358,7 @@ local AimbotCore = (function()
             -- Check if target changed to reset part
             if currentTarget ~= lastLockedTarget then
                 lastLockedTarget = currentTarget
-                if getgenv().LegitMode and getgenv().RandomParts then
+                if getgenv().LegitMode then
                     activeTargetPart = getRandomPart(currentTarget.Character)
                 else
                     activeTargetPart = "Head"
@@ -366,8 +366,8 @@ local AimbotCore = (function()
             end
             
             -- Legit Mode: Periodically switch target part (Humanization)
-            -- Only if RandomParts is enabled
-            if getgenv().LegitMode and getgenv().RandomParts and currentTarget and currentTarget.Character then
+            -- Switches every 0.15s to 0.4s
+            if getgenv().LegitMode and currentTarget and currentTarget.Character then
                 if not getgenv().LastLegitSwitch then getgenv().LastLegitSwitch = 0 end
                 if tick() - getgenv().LastLegitSwitch > (math.random() * 0.25 + 0.15) then
                     activeTargetPart = getRandomPart(currentTarget.Character)
@@ -377,26 +377,17 @@ local AimbotCore = (function()
 
             if currentTarget.Character then
                 -- Fallback if the specific part is missing (e.g. lost limb)
-                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
-                
+                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart)
+                if not targetInst then 
+                    targetInst = currentTarget.Character:FindFirstChild("Head") 
+                end
+
                 if targetInst then
                     local humanoid = currentTarget.Character:FindFirstChild("Humanoid")
                     if humanoid and humanoid.Health > 0 then
                          local currentCFrame = camera.CFrame
-                         
-                         -- SMOOTHNESS / AIM ASSIST LOGIC
-                         local smoothing = 1
-                         if getgenv().AimAssistMode then
-                             -- Use the Slider Value (1 to 20)
-                             -- 1 = Instant, 20 = Slow/Drag
-                             local smoothVal = getgenv().AimbotSmoothness or 10
-                             smoothing = 1 / smoothVal -- e.g. 1/10 = 0.1 alpha
-                         else
-                             -- Default Instnat or standard easing
-                             smoothing = getgenv().AimbotEasing or 1
-                         end
-                         
-                         camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), smoothing)
+                         local easing = getgenv().AimbotEasing or 1
+                         camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), easing)
                     else
                         currentTarget = nil
                         lastLockedTarget = nil
@@ -3175,21 +3166,6 @@ do
         getgenv().LegitMode = v
     end)
     table.insert(aimbotDependents, legitToggle.Frame)
-    
-    local randomPartsToggle = AimbotGroup:Toggle("Humanizar (Random Parts)", getgenv().RandomParts or false, function(v)
-        getgenv().RandomParts = v
-    end)
-    table.insert(aimbotDependents, randomPartsToggle.Frame)
-    
-    local aimAssistToggle = AimbotGroup:Toggle("Modo Aim Assist (Suave)", getgenv().AimAssistMode or false, function(v)
-        getgenv().AimAssistMode = v
-    end)
-    table.insert(aimbotDependents, aimAssistToggle.Frame)
-    
-    local smoothSlider = AimbotGroup:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
-        getgenv().AimbotSmoothness = v -- 1 = Fast, 20 = Slow (Dividing factor)
-    end)
-    table.insert(aimbotDependents, smoothSlider.Frame)
 
     local cursorToggle = AimbotGroup:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
         AimbotCore:SetCursorAim(v)
@@ -3232,12 +3208,12 @@ do
     end)
     table.insert(aimbotDependents, ignoreTeamList)
 
-    local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, (AimbotCore:GetFOV() or 90), function(v)
+    local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, AimbotCore:GetFOV(), function(v)
         AimbotCore:SetFOV(v)
     end)
     table.insert(aimbotDependents, fovS)
 
-    local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
+    local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor(getgenv().AimbotEasing * 10), function(v)
         getgenv().AimbotEasing = v / 10 
     end)
     table.insert(aimbotDependents, easingS)
@@ -3316,17 +3292,17 @@ do
         end
     end)
 
-    local nameToggle = ESPGroup:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
+    local nameToggle = ESPGroup:Toggle("Mostrar Nomes", getgenv().ESPNames, function(v)
         getgenv().ESPNames = v
     end)
     table.insert(espDependents, nameToggle.Frame)
 
-    local healthToggle = ESPGroup:Toggle("Barra de Vida", (getgenv().ESPHealth or false), function(v)
+    local healthToggle = ESPGroup:Toggle("Barra de Vida", getgenv().ESPHealth, function(v)
         getgenv().ESPHealth = v
     end)
     table.insert(espDependents, healthToggle.Frame)
 
-    local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", (getgenv().ESPTracers or false), function(v)
+    local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", getgenv().ESPTracers, function(v)
         getgenv().ESPTracers = v
     end)
     table.insert(espDependents, tracerToggle.Frame)
@@ -3355,7 +3331,7 @@ do
     end)
 
     local UtilityGroup = Local:Group("Utilidades")
-    UtilityGroup:Bind("Tecla Soltar Cursor", (getgenv().UnlockMouseKey or Enum.KeyCode.RightControl), function(key)
+    UtilityGroup:Bind("Tecla Soltar Cursor", getgenv().UnlockMouseKey, function(key)
         getgenv().UnlockMouseKey = key
     end)
     UtilityGroup:Button("Resetar Cursor (Emergência)", function()
