@@ -809,6 +809,7 @@ local BotCore = (function()
     local isFollowEnabled = false
     local isFlingEnabled = false
     local isDefenseEnabled = false -- New Defense Mode
+    local isMeleeEnabled = false -- New Melee Mode
 
     
 
@@ -858,6 +859,11 @@ local BotCore = (function()
     }
     
     local FlingTargets = {} -- List of targets to attack
+    local ActiveTargetNPCs = {
+        ["Noob"] = true, -- Default for testing
+        ["Dummy"] = true
+    }
+    BotCore.ActiveTargetNPCs = ActiveTargetNPCs -- Expose
 
     local function getRoot(char)
         return char and char:FindFirstChild("HumanoidRootPart")
@@ -1081,8 +1087,9 @@ local BotCore = (function()
 
             end
             
-            -- DEFENSE MODE LOGIC
-            if isDefenseEnabled and currentTargetName and currentTargetName ~= "Nenhum" then
+            -- DEFENSE / AUTO-MELEE MODE LOGIC
+            -- Triggers if Defense OR Melee is enabled.
+            if (isDefenseEnabled or isMeleeEnabled) and currentTargetName and currentTargetName ~= "Nenhum" then
                 local master = Players:FindFirstChild(currentTargetName)
                 if master and master.Character then
                     local mRoot = getRoot(master.Character)
@@ -1091,30 +1098,44 @@ local BotCore = (function()
                         local nearestEnemy = nil
                         local nearestDist = Config.DefenseRadius
                         
-                        for _, enemy in pairs(Players:GetPlayers()) do
-                            if enemy ~= LocalPlayer and enemy ~= master then
+                        -- [Target Gathering]
+                        -- 1. Players
+                        -- 2. NPCs (User Defined)
+                        local allTargets = {}
+                        for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
+                        
+                        -- NPC Check (Configurable)
+                        for _, v in pairs(workspace:GetChildren()) do
+                            if v:IsA("Model") and BotCore.ActiveTargetNPCs[v.Name] and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
+                                table.insert(allTargets, v)
+                            end
+                        end
+
+                        for _, enemy in pairs(allTargets) do
+                            local isPlayer = enemy:IsA("Player")
+                            if enemy ~= LocalPlayer and (not isPlayer or enemy ~= master) then
                                 -- CHECKS
                                 local allow = true
                                 if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                                if DefenseConfig.TeamCheck then
+                                if DefenseConfig.TeamCheck and isPlayer then
                                     if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
                                     if master.TeamColor and enemy.TeamColor and master.TeamColor == enemy.TeamColor then allow = false end
                                 end
                                 
-                                if allow and enemy.Character then
-                                    local eRoot = getRoot(enemy.Character)
-                                    local eHum = getHumanoid(enemy.Character)
+                                local char = isPlayer and enemy.Character or enemy
+                                
+                                if allow and char then
+                                    local eRoot = getRoot(char)
+                                    local eHum = getHumanoid(char)
                                     if eRoot and eHum and eHum.Health > 0 then
                                         local d = (eRoot.Position - mRoot.Position).Magnitude
                                         
-                                        -- [SAFE ZONE CHECK]
-                                        -- If enemy is too close to Master, do NOT attack (to prevent collateral damage)
                                         if d < Config.DefenseSafeZone then
-                                             -- Skip this enemy, they are in the Safe Zone
+                                             -- Skip
                                         else
                                             if d < nearestDist then
                                                 nearestDist = d
-                                                nearestEnemy = enemy
+                                                nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
                                             end
                                         end
                                     end
@@ -1123,10 +1144,19 @@ local BotCore = (function()
                         end
                         
                         if nearestEnemy then
-                            activeFlingTarget = nearestEnemy
-                            currentFlingState = FlingState.APPROACH
+                            activeFlingTarget = nearestEnemy.Object
+                            
+                            -- DECIDE ATTACK MODE
+                            -- Priority: Melee > Defense(Fling)
+                            if isMeleeEnabled then
+                                currentFlingState = "MELEE"
+                                warn("[BotCombat] Engaging Target: " .. nearestEnemy.Name)
+                            else
+                                currentFlingState = FlingState.APPROACH
+                                warn("[BotDefense] Flinging Target: " .. nearestEnemy.Name)
+                            end
+                            
                             flingStartTime = tick()
-                            warn("[BotDefense] Defending Master! Attacking: " .. nearestEnemy.Name)
                             return
                         end
                     end
@@ -1239,12 +1269,18 @@ local BotCore = (function()
              -- Also force Physics state to be safe
              -- myHum:ChangeState(Enum.HumanoidStateType.Physics) -- sometimes helpful
              
-             if not activeFlingTarget or not activeFlingTarget.Character then
+             local targetChar = nil
+             if activeFlingTarget then
+                 if activeFlingTarget:IsA("Player") then targetChar = activeFlingTarget.Character
+                 elseif activeFlingTarget:IsA("Model") then targetChar = activeFlingTarget end -- NPC Support
+             end
+
+             if not targetChar then
                  currentFlingState = FlingState.RETURNING
                  return
              end
-             local tRoot = getRoot(activeFlingTarget.Character)
-             local tHum = getHumanoid(activeFlingTarget.Character)
+             local tRoot = getRoot(targetChar)
+             local tHum = getHumanoid(targetChar)
              if not tRoot then currentFlingState = FlingState.RETURNING return end
              
              -- [DYNAMIC SAFE ZONE ABORT]
@@ -1400,9 +1436,106 @@ local BotCore = (function()
                   myHum:MoveTo(tRoot.Position + pushDir * 10)
              end
              
-             -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
              if distFromMe > 5 then
                   myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 2)
+             end
+
+        -- [STATE: MELEE COMBAT]
+        elseif currentFlingState == "MELEE" then
+             local targetChar = nil
+             if activeFlingTarget then
+                 if activeFlingTarget:IsA("Player") then targetChar = activeFlingTarget.Character
+                 elseif activeFlingTarget:IsA("Model") then targetChar = activeFlingTarget end
+             end
+             
+             if not targetChar then
+                 currentFlingState = FlingState.RETURNING
+                 return
+             end
+             
+             local tRoot = getRoot(targetChar)
+             local tHum = getHumanoid(targetChar)
+             if not tRoot or not tHum or tHum.Health <= 0 then
+                 currentFlingState = FlingState.RETURNING
+                 return
+             end
+             
+             -- 1. Equip Weapon (First Tool)
+             local tool = myChar:FindFirstChildOfClass("Tool")
+             if not tool then
+                 local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+                 if bpTool then 
+                     myHum:EquipTool(bpTool) 
+                     tool = bpTool
+                 end
+             end
+             
+             -- 2. Master Safety Logic (LOS)
+             local safeToAttack = true
+             if currentTargetName and currentTargetName ~= "Nenhum" then
+                 local master = Players:FindFirstChild(currentTargetName)
+                 if master and master.Character then
+                      local mRoot = getRoot(master.Character)
+                      if mRoot then
+                          -- Check 1: Distance Limit relative to Master (Don't chase too far)
+                          if (tRoot.Position - mRoot.Position).Magnitude > (Config.DefenseRadius * 2) then
+                               warn("[BotCombat] Target too far. Returning.")
+                               currentFlingState = FlingState.RETURNING
+                               return
+                          end
+                          
+                          -- Check 2: Target Switching (Is someone closer?)
+                          for _, enemy in pairs(Players:GetPlayers()) do
+                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget and enemy.Character then
+                                     local eRoot = getRoot(enemy.Character)
+                                     local eHum = getHumanoid(enemy.Character)
+                                     if eRoot and eHum and eHum.Health > 0 then
+                                          local allow = true
+                                          if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                                          if DefenseConfig.TeamCheck then
+                                               if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                                          end
+                                          
+                                          if allow then
+                                              local dNew = (eRoot.Position - mRoot.Position).Magnitude
+                                              local dCurr = (tRoot.Position - mRoot.Position).Magnitude
+                                              
+                                              if dNew < (dCurr - 10) then
+                                                   warn("[BotCombat] Switching to closer target: " .. enemy.Name)
+                                                   activeFlingTarget = enemy
+                                                   return 
+                                              end
+                                          end
+                                     end
+                                end
+                          end
+
+                          -- Check 3: Friendly Fire LOS (Is Master in front of me?)
+                          local toTarget = (tRoot.Position - myRoot.Position).Unit
+                          local toMaster = (mRoot.Position - myRoot.Position).Unit
+                          local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
+                          local distToTarget = (tRoot.Position - myRoot.Position).Magnitude
+                          
+                          if distToMaster < distToTarget then
+                               local dot = toTarget:Dot(toMaster)
+                               if dot > 0.5 then -- Cone check
+                                   safeToAttack = false
+                                   myHum:MoveTo(myRoot.Position + myRoot.CFrame.RightVector * 5)
+                               end
+                          end
+                      end
+                 end
+             end
+             
+             -- 3. Chase & Attack
+             if tool and safeToAttack then
+                  tool:Activate()
+             end
+             
+             -- Aim & Move
+             if safeToAttack then
+                 myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z))
+                 myHum:MoveTo(tRoot.Position)
              end
 
              -- --- SAFETY CHECK ---
@@ -1597,6 +1730,20 @@ local BotCore = (function()
         end
     end
 
+    function BotCore:AddTargetNPC(name)
+        if name and name ~= "" then ActiveTargetNPCs[name] = true; warn("NPC Added: "..name) end
+    end
+    
+    function BotCore:RemoveTargetNPC(name)
+        if name then ActiveTargetNPCs[name] = nil; warn("NPC Removed: "..name) end
+    end
+    
+    function BotCore:GetNPCList()
+        local list = {}
+        for name, _ in pairs(ActiveTargetNPCs) do table.insert(list, name) end
+        return list
+    end
+
     function BotCore:SetFollowEnabled(state)
         warn("[BotDebug] Follow Enabled: " .. tostring(state))
         isFollowEnabled = state
@@ -1613,6 +1760,12 @@ local BotCore = (function()
     function BotCore:SetDefenseEnabled(state)
         warn("[BotDebug] Defense Enabled: " .. tostring(state))
         isDefenseEnabled = state
+        CheckLoop()
+    end
+    
+    function BotCore:SetMeleeEnabled(state)
+        warn("[BotDebug] Melee Enabled: " .. tostring(state))
+        isMeleeEnabled = state
         CheckLoop()
     end
     
@@ -2942,6 +3095,10 @@ task.spawn(function()
     end
 end)
 
+BotGroup:Toggle("Ativar Seguir", false, function(v)
+    BotCore:SetFollowEnabled(v)
+end)
+
 BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
     BotCore:SetDistances(v, v+5)
 end, function(v) return v .. "/" .. (v+5) end)
@@ -2981,6 +3138,38 @@ BotGroup:InteractiveList("Alvo(s) Fling", GetPlayersList, function(name)
 end, function(name)
     BotCore:RemoveFlingTarget(name)
 end)
+
+-- 1.5 GROUP: COMBATE (New)
+local CombatGroup = BotMe:Group("Modo Combate (Melee)")
+
+CombatGroup:Toggle("Ativar Combate (Auto)", false, function(v)
+    BotCore:SetMeleeEnabled(v)
+end)
+
+local npcInputName = ""
+CombatGroup:Input("Nome do NPC (Workspace)", function(text)
+    npcInputName = text
+end)
+
+CombatGroup:Button("Adicionar NPC", function()
+    BotCore:AddTargetNPC(npcInputName)
+end)
+
+CombatGroup:Button("Remover NPC", function()
+    BotCore:RemoveTargetNPC(npcInputName)
+end)
+
+local function GetNPCListFunc()
+   return BotCore:GetNPCList()
+end
+
+CombatGroup:InteractiveList("NPCs Alvos Ativos", GetNPCListFunc, function(name)
+   -- On Click (maybe remove?)
+   BotCore:RemoveTargetNPC(name)
+end, function(name)
+   BotCore:RemoveTargetNPC(name)
+end)
+
 
 
 -- 2. GROUP: BOTS (Second)
