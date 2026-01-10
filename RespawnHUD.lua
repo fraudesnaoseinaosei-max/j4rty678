@@ -1174,7 +1174,7 @@ local BotCore = (function()
                 -- Holster Logic
                 if myHum then myHum:UnequipTools() end
 
-
+            end
             
             -- DEFENSE / AUTO-MELEE / RANGED MODE LOGIC
             -- Triggers if Defense OR Melee OR Ranged is enabled.
