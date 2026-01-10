@@ -1006,36 +1006,29 @@ local BotCore = (function()
         local function UpdateCollision(targetChar)
              -- Disable collision with Master (Ghost Mode)
              if not targetChar then 
-                 for _, c in pairs(noCollisionConstraintParts) do c:Destroy() end
+                 for _, c in pairs(noCollisionConstraintParts) do pcall(function() c:Destroy() end) end
                  noCollisionConstraintParts = {}
                  return 
              end
              
-             local tRoot = getRoot(targetChar)
-             if not tRoot then return end
-             
              local myChar = LocalPlayer.Character
              if not myChar then return end
              
-             -- Iterate all my parts and constrain to Target Root
-             -- This ensures I cannot push the target with ANY limb.
-             for _, part in pairs(myChar:GetChildren()) do
-                 if part:IsA("BasePart") then
-                     if not noCollisionConstraintParts[part] or not noCollisionConstraintParts[part].Parent then
-                         local att0 = Instance.new("Attachment")
-                         att0.Name = "BotAtt_"..part.Name
-                         att0.Parent = part
-                         
-                         local att1 = Instance.new("Attachment")
-                         att1.Name = "MasterAtt_"..part.Name
-                         att1.Parent = tRoot
-                         
-                         local ncc = Instance.new("NoCollisionConstraint")
-                         ncc.Part0 = part
-                         ncc.Part1 = tRoot
-                         ncc.Parent = part
-                         
-                         noCollisionConstraintParts[part] = ncc
+             -- Iterate ALL parts of both characters for total safety
+             for _, myPart in pairs(myChar:GetChildren()) do
+                 if myPart:IsA("BasePart") then
+                     for _, tPart in pairs(targetChar:GetChildren()) do
+                         if tPart:IsA("BasePart") then
+                             local key = myPart.Name .. "_" .. tPart.Name
+                             if not noCollisionConstraintParts[key] or not noCollisionConstraintParts[key].Parent then
+                                 local ncc = Instance.new("NoCollisionConstraint")
+                                 ncc.Name = "AntiFriend_"..key
+                                 ncc.Part0 = myPart
+                                 ncc.Part1 = tPart
+                                 ncc.Parent = myPart
+                                 noCollisionConstraintParts[key] = ncc
+                             end
+                         end
                      end
                  end
              end
@@ -1337,12 +1330,32 @@ local BotCore = (function()
              -- Position: Walk INTO them CONSTANTLY
              -- Force movement even if close
              -- [AGGRESSIVE MOVEMENT FIX]
-             -- Instead of moving TO the target, move PAST them to ensure we push through.
-             local pushDir = (tRoot.Position - myRoot.Position).Unit
-             -- Handle NaN (Not a Number) if positions are identical (overlap)
-             if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
              
-             myHum:MoveTo(tRoot.Position + pushDir * 10)
+             local targetSpeed = tRoot.AssemblyLinearVelocity.Magnitude
+             
+             -- [FEATURE: MOVING INTERCEPTION]
+             if targetSpeed >= 2 then
+                  stationaryStartTime = 0
+                  
+                  -- Intercept 4 studs IN FRONT
+                  local moveDir = tRoot.AssemblyLinearVelocity.Unit
+                  -- Handle vertical vs horizontal? Just use full velocity unit.
+                  local interceptPos = tRoot.Position + (moveDir * 4) 
+                  
+                  -- TP to Intercept point, Looking AT the target
+                  myRoot.CFrame = CFrame.new(interceptPos, tRoot.Position)
+                  
+                  -- Push BACK into them
+                  myHum:MoveTo(tRoot.Position)
+                  
+             else
+                  -- [FEATURE: STATIONARY FLING fallback]
+                  -- If stationary logic hasn't kicked in via time check (below), default to push thru
+                  -- The specific time-check logic is further down, so here we just do basic push
+                  local pushDir = (tRoot.Position - myRoot.Position).Unit
+                  if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
+                  myHum:MoveTo(tRoot.Position + pushDir * 10)
+             end
              
              -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
              if distFromMe > 5 then
