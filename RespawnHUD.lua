@@ -3189,7 +3189,7 @@ do
     local smoothSlider = AimbotGroup:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
         getgenv().AimbotSmoothness = v -- 1 = Fast, 20 = Slow (Dividing factor)
     end)
-    table.insert(aimbotDependents, smoothSlider.Frame)
+    table.insert(aimbotDependents, smoothSlider)
 
     local cursorToggle = AimbotGroup:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
         AimbotCore:SetCursorAim(v)
