@@ -3448,6 +3448,7 @@ RangedGroup:Toggle("Ativar Longa Distância", false, function(v)
     BotCore:SetRangedEnabled(v)
 end)
 
+RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
     BotCore:SetRangedDistance(v)
 end)
 
