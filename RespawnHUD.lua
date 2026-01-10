@@ -1532,21 +1532,28 @@ do -- Start BotCore Block
                   end
              else
                   -- CONTACT PHASE (The Touch)
-                  -- Just walk into them. The Spin does the rest.
+                  -- "Touch Walkfling" isn't enough? Use "Velocity Ramming".
+                  -- Push *THROUGH* the target. MoveTo stops at surface. Velocity ignores it until physics solves it (FLING).
+                  
+                  -- 1. Aim straight at them
+                  myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
+                  
+                  -- 2. Force Physics Overlap (The secret sauce of fling)
+                  -- 15000 Spin + 2000 Speed Push = Ejection
+                  myRoot.AssemblyAngularVelocity = Vector3.new(0, 15000, 0)
+                  myRoot.AssemblyLinearVelocity = (tRoot.Position - myRoot.Position).Unit * 1000 + Vector3.new(0, 2, 0)
+                  
+                  -- 3. Keep Walking just in case (Animation)
                   myHum:MoveTo(tRoot.Position)
                   
-                  -- Keep vertical aligned to avoid falling through map
-                  if myRoot.Position.Y < tRoot.Position.Y - 2 then
-                      myRoot.CFrame = myRoot.CFrame + Vector3.new(0, 1, 0)
+                  -- 4. Re-Enforce Collision (Crucial)
+                  for _, p in pairs(myChar:GetChildren()) do
+                      if p:IsA("BasePart") then p.CanCollide = true end
                   end
                   
-                  -- OPTIONAL: Tiny glue if they run too fast?
-                  -- No, let 'MoveTo' handle it. If we use CFrame here, it glitches.
-                  -- Only CFrame if they are actually getting away faster than we run.
-                  if tRoot.AssemblyLinearVelocity.Magnitude > myHum.WalkSpeed + 10 then
-                       -- They are fleeing fast. Prediction needed?
-                       -- Just mild CFrame nudge, not full re-set.
-                       myRoot.CFrame = CFrame.new(myRoot.Position:Lerp(tRoot.Position, 0.2)) * myRoot.CFrame.Rotation
+                  -- 5. Anti-Void (Don't fall through floor)
+                  if myRoot.Position.Y < tRoot.Position.Y - 3 then
+                      myRoot.AssemblyLinearVelocity = Vector3.new(0, 50, 0)
                   end
              end
              
