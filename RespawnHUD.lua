@@ -855,10 +855,12 @@ local BotCore = (function()
         JumpPower = 50,
         JumpPower = 50,
         VisionRadius = 50, -- Vision Radius
-        DefenseRadius = 15, -- Radius to trigger defense on Master
+        DefenseRadius = 50, -- Radius to trigger defense on Master
         FlingSafeDistance = 3, -- Distance from Master to disable Fling (Safety)
-        DefenseSafeZone = 20, -- Do not attack/fling enemies if they are this close to Master
+        DefenseSafeZone = 0, -- Disabled by default as requested
         RangedDistance = 100, -- Max distance for Ranged Mode
+        MeleeTriggerDistance = 20, -- Distance to switch/force Melee
+        SelfDefenseRadius = 15, -- Radius to trigger defense on SELF
         UseVirtualClick = false -- Virtual Click for Prison Life etc
     }
     
@@ -1028,11 +1030,23 @@ local BotCore = (function()
 
     -- [HELPER: THREAT SCANNER]
     function BotCore:ScanForThreats(masterRoot)
-        if not masterRoot then return nil end
+        -- Support Self-Defense even if Master is null (though logic requires masterRoot currently for Defense)
+        -- We will check Master Proximity OR Self Proximity
         
         local nearestEnemy = nil
         local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
         
+        -- Self Defense Priority
+        local selfDistPriority = Config.SelfDefenseRadius
+        
+        -- Master Root is optional usually, but currently required by caller.
+        -- If masterRoot is nil, we can default to myRoot? 
+        -- Caller ensures masterRoot is passed if following.
+        -- If not following, masterRoot might be nil.
+        
+        local myRoot = nil
+        if LocalPlayer.Character then myRoot = getRoot(LocalPlayer.Character) end
+
         -- [Target Gathering]
         -- 1. Players
         -- 2. NPCs (User Defined)
@@ -1067,16 +1081,24 @@ local BotCore = (function()
                     end
                     
                     if allow then
-                         local d = (eRoot.Position - masterRoot.Position).Magnitude
+                         local dMaster = masterRoot and (eRoot.Position - masterRoot.Position).Magnitude or 9999
+                         local dSelf = myRoot and (eRoot.Position - myRoot.Position).Magnitude or 9999
                          
-                         if d < Config.DefenseSafeZone then
+                         if dMaster < Config.DefenseSafeZone then
                               -- [SAFE ZONE RESTORED]
                               -- Skip target if inside Safe Zone (Passive mode/Bodyguard boundary)
                               -- This makes the "Zona Segura" slider work again.
                          else
-                             -- Update Nearest
-                             if d < nearestDist then
-                                 nearestDist = d
+                             -- Logic: Prioritize CLOSEST to Master OR Self (if very close)
+                             -- If enemy is < 15 studs from ME (Self Defense), immediate priority.
+                             
+                             local score = dMaster
+                             if dSelf < Config.SelfDefenseRadius then
+                                 score = dSelf - 50 -- Boost priority for self-defense
+                             end
+                             
+                             if score < nearestDist then
+                                 nearestDist = score
                                  nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
                              end
                          end
@@ -1189,11 +1211,11 @@ local BotCore = (function()
                             local mode = "FLING"
                             
                             -- Logic:
-                            -- 1. If Melee is ON and target is close (<20), force MELEE.
-                            -- 2. If Ranged is ON and target is within range (and > 20 or Melee OFF), force RANGED.
+                            -- 1. If Melee is ON and target is close (<TriggerDist), force MELEE.
+                            -- 2. If Ranged is ON and target is within range (and > TriggerDist or Melee OFF), force RANGED.
                             -- 3. Else fallback to Fling if Defense ON.
 
-                            if isMeleeEnabled and distToTarget < 20 then
+                            if isMeleeEnabled and distToTarget < Config.MeleeTriggerDistance then
                                 mode = "MELEE"
                             elseif isRangedEnabled and distToTarget <= Config.RangedDistance then
                                 mode = "RANGED"
@@ -1935,6 +1957,11 @@ local BotCore = (function()
     function BotCore:SetDefenseRadius(dist)
         Config.DefenseRadius = dist
         warn("[BotConfig] Defense Radius: " .. dist)
+    end
+    
+    function BotCore:SetMeleeTriggerDistance(dist)
+        Config.MeleeTriggerDistance = dist
+        warn("[BotConfig] Melee Trigger Dist: " .. dist)
     end
     
     function BotCore:SetDefenseSafeZone(dist)
@@ -3489,6 +3516,10 @@ end)
 
 RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
     BotCore:SetRangedDistance(v)
+end)
+
+CombatGroup:Slider("Distância Gatilho Melee", 5, 50, 20, function(v)
+    BotCore:SetMeleeTriggerDistance(v)
 end)
 
 -- 1.7 GROUP: ARMAS E PRIORIDADE (New)
