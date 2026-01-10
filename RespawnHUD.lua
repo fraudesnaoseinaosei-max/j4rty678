@@ -3237,7 +3237,7 @@ do
     end)
     table.insert(aimbotDependents, fovS)
 
-    local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor(getgenv().AimbotEasing * 10), function(v)
+    local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
         getgenv().AimbotEasing = v / 10 
     end)
     table.insert(aimbotDependents, easingS)
