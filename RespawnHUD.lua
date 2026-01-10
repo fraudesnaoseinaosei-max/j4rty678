@@ -1454,84 +1454,66 @@ do -- Start BotCore Block
                  end
              end
              
-             -- [PHASE 2: WALKFLING SPIN]
-             -- "Pipoco" Fix: Do NOT Skyrocket. Stay grounded.
-             -- Move INTO the target to force physics collision overlap.
+             -- [PHASE 2: STABLE TOUCH FLING]
+             -- "Touch Walkfling": High rotation + Walking into target.
+             -- No erratic teleporting (Lightning effect).
              
-             -- High Angular Velocity for Spin
-             myRoot.AssemblyAngularVelocity = Vector3.new(0, 10000, 0)
+             -- 1. High Spin (The Fling Force)
+             myRoot.AssemblyAngularVelocity = Vector3.new(0, 15000, 0)
              
-             -- Reset Linear Velocity to avoid flying away (keep it normal physics)
-             -- myRoot.AssemblyLinearVelocity = Vector3.zero 
-             -- Actually, we want to PUSH them.
+             -- 2. Movement Logic
+             local distToTarget = (myRoot.Position - tRoot.Position).Magnitude
              
-             -- Position: Walk INTO them CONSTANTLY
-             -- Force movement even if close
-             -- Position: Walk INTO them CONSTANTLY
-             -- Force movement even if close
-             -- [AGGRESSIVE MOVEMENT FIX]
-             
-             -- [FEATURE: MASTER SAFETY CHECK (STRICT)]
-             -- If Master is within 8 studs (panic distance), ZERO ALL.
+             -- [FEATURE: MASTER SAFETY]
              if currentTargetName and currentTargetName ~= "Nenhum" then
                   local master = Players:FindFirstChild(currentTargetName)
                   if master and master.Character then
                       local mRoot = getRoot(master.Character)
                       if mRoot and (mRoot.Position - myRoot.Position).Magnitude < 8 then
+                           -- PANIC STOP
                            myRoot.AssemblyLinearVelocity = Vector3.zero
                            myRoot.AssemblyAngularVelocity = Vector3.zero
-                           -- Just follow safely, no spin.
                            myHum:MoveTo(tRoot.Position)
                            return
                       end
                   end
              end
              
-             local targetVelocity = tRoot.AssemblyLinearVelocity
-             local horizSpeed = Vector3.new(targetVelocity.X, 0, targetVelocity.Z).Magnitude
-             
-             -- [FEATURE: PREDICTIVE INTERCEPTION]
-             -- If target is moving fast (>10) AND running away (dist > 6)
-             -- TP in FRONT of them to cut them off.
-             local distToTarget = (myRoot.Position - tRoot.Position).Magnitude
-             
-             if horizSpeed > 8 and distToTarget > 6 then
-                  -- Calculate "Front" 4 studs ahead
-                  local moveDir = (targetVelocity * Vector3.new(1,0,1)).Unit
-                  if moveDir.X == moveDir.X then -- NaN check
-                       local interceptPos = tRoot.Position + (moveDir * 5) -- 5 studs ahead
-                       
-                       -- TP there, looking AT them
-                       myRoot.CFrame = CFrame.new(interceptPos, tRoot.Position)
-                       
-                       -- Push BACK into them (Opposite to their movement)
-                       -- This forces a head-on collision
-                       myHum:MoveTo(tRoot.Position)
-                       
-                       -- Reset statonary timer
-                       stationaryStartTime = 0
-                  end
-             elseif horizSpeed < 2 then
-                  -- [FEATURE: STATIONARY FLING]
-                  if not stationaryStartTime or stationaryStartTime == 0 then
-                      stationaryStartTime = tick()
-                  elseif tick() - stationaryStartTime > 1.5 then -- Faster trigger (1.5s)
-                       -- TP Inside + Tremble
-                       myRoot.CFrame = tRoot.CFrame
-                       local tremble = Vector3.new(math.random()-0.5, 0, math.random()-0.5) * 2
-                       myHum:MoveTo(tRoot.Position + tremble)
+             if distToTarget > 10 then
+                  -- Approach Phase (Smooth Flight)
+                  -- Use LinearVelocity so it looks continuous, not teleporty
+                  local dir = (tRoot.Position - myRoot.Position).Unit
+                  myRoot.AssemblyLinearVelocity = dir * 100
+                  myHum:MoveTo(tRoot.Position)
+                  
+                  -- Safety Teleport only if VERY far or stuck
+                  if distToTarget > 50 then
+                       myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 5)
                   end
              else
-                  -- Standard Chase/Push
-                  stationaryStartTime = 0
-                  local pushDir = (tRoot.Position - myRoot.Position).Unit
-                  if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
-                  myHum:MoveTo(tRoot.Position + pushDir * 10)
+                  -- CONTACT PHASE (The Touch)
+                  -- Just walk into them. The Spin does the rest.
+                  myHum:MoveTo(tRoot.Position)
+                  
+                  -- Keep vertical aligned to avoid falling through map
+                  if myRoot.Position.Y < tRoot.Position.Y - 2 then
+                      myRoot.CFrame = myRoot.CFrame + Vector3.new(0, 1, 0)
+                  end
+                  
+                  -- OPTIONAL: Tiny glue if they run too fast?
+                  -- No, let 'MoveTo' handle it. If we use CFrame here, it glitches.
+                  -- Only CFrame if they are actually getting away faster than we run.
+                  if tRoot.AssemblyLinearVelocity.Magnitude > myHum.WalkSpeed + 10 then
+                       -- They are fleeing fast. Prediction needed?
+                       -- Just mild CFrame nudge, not full re-set.
+                       myRoot.CFrame = CFrame.new(myRoot.Position:Lerp(tRoot.Position, 0.2)) * myRoot.CFrame.Rotation
+                  end
              end
              
-             if distFromMe > 5 then
-                  myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 2)
-             end
+             -- 3. Physics Housekeeping
+             -- Ensure we don't trip
+             if myHum.Sit then myHum.Sit = false end
+             if myHum.PlatformStand then myHum.PlatformStand = false end
 
         -- [STATE: MELEE COMBAT]
         elseif currentFlingState == "MELEE" then
