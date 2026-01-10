@@ -810,6 +810,7 @@ local BotCore = (function()
     local isFlingEnabled = false
     local isDefenseEnabled = false -- New Defense Mode
     local isMeleeEnabled = false -- New Melee Mode
+    local isRangedEnabled = false -- New Ranged Mode
 
     
 
@@ -818,7 +819,8 @@ local BotCore = (function()
         IDLE = "IDLE",
         APPROACH = "APPROACH",
         FLINGING = "FLINGING",
-        RETURNING = "RETURNING"
+        RETURNING = "RETURNING",
+        RANGED = "RANGED"
     }
     local currentFlingState = FlingState.IDLE
     local activeFlingTarget = nil
@@ -855,7 +857,8 @@ local BotCore = (function()
         VisionRadius = 50, -- Vision Radius
         DefenseRadius = 15, -- Radius to trigger defense on Master
         FlingSafeDistance = 3, -- Distance from Master to disable Fling (Safety)
-        DefenseSafeZone = 20 -- Do not attack/fling enemies if they are this close to Master
+        DefenseSafeZone = 20, -- Do not attack/fling enemies if they are this close to Master
+        RangedDistance = 100 -- Max distance for Ranged Mode
     }
     
     local FlingTargets = {} -- List of targets to attack
@@ -1089,14 +1092,16 @@ local BotCore = (function()
             
             -- DEFENSE / AUTO-MELEE MODE LOGIC
             -- Triggers if Defense OR Melee is enabled.
-            if (isDefenseEnabled or isMeleeEnabled) and currentTargetName and currentTargetName ~= "Nenhum" then
+            -- DEFENSE / AUTO-MELEE / RANGED MODE LOGIC
+            -- Triggers if Defense OR Melee OR Ranged is enabled.
+            if (isDefenseEnabled or isMeleeEnabled or isRangedEnabled) and currentTargetName and currentTargetName ~= "Nenhum" then
                 local master = Players:FindFirstChild(currentTargetName)
                 if master and master.Character then
                     local mRoot = getRoot(master.Character)
                     if mRoot then
                         -- Check for enemies near Master
                         local nearestEnemy = nil
-                        local nearestDist = Config.DefenseRadius
+                        local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
                         
                         -- [Target Gathering]
                         -- 1. Players
@@ -1147,10 +1152,35 @@ local BotCore = (function()
                             activeFlingTarget = nearestEnemy.Object
                             
                             -- DECIDE ATTACK MODE
-                            -- Priority: Melee > Defense(Fling)
-                            if isMeleeEnabled then
+                            -- Priority: Melee (< 20) | Ranged (> 20 & < RangedDist) | Fling (Fallback)
+                            local distToTarget = (nearestEnemy.Character.HumanoidRootPart.Position - mRoot.Position).Magnitude
+                            
+                            local mode = "FLING"
+                            
+                            -- Logic:
+                            -- 1. If Melee is ON and target is close (<20), force MELEE.
+                            -- 2. If Ranged is ON and target is within range (and > 20 or Melee OFF), force RANGED.
+                            -- 3. Else fallback to Fling if Defense ON.
+
+                            if isMeleeEnabled and distToTarget < 20 then
+                                mode = "MELEE"
+                            elseif isRangedEnabled and distToTarget <= Config.RangedDistance then
+                                mode = "RANGED"
+                            elseif isMeleeEnabled then
+                                -- Target too far for Melee preference, but maybe chase? 
+                                -- User said "Priority based on distance".
+                                -- If only Melee is on, chase.
+                                mode = "MELEE"
+                            elseif isDefenseEnabled then
+                                mode = "APPROACH" -- Fling
+                            end
+                            
+                            if mode == "MELEE" then
                                 currentFlingState = "MELEE"
-                                warn("[BotCombat] Engaging Target: " .. nearestEnemy.Name)
+                                warn("[BotCombat] Melee Engaging: " .. nearestEnemy.Name)
+                            elseif mode == "RANGED" then
+                                currentFlingState = "RANGED"
+                                warn("[BotCombat] Ranged Engaging: " .. nearestEnemy.Name)
                             else
                                 currentFlingState = FlingState.APPROACH
                                 warn("[BotDefense] Flinging Target: " .. nearestEnemy.Name)
@@ -1650,6 +1680,90 @@ local BotCore = (function()
                   stationaryStartTime = 0
              end
 
+        -- [STATE: RANGED COMBAT]
+        elseif currentFlingState == "RANGED" then
+             local targetChar = nil
+             if activeFlingTarget then
+                 if activeFlingTarget:IsA("Player") then targetChar = activeFlingTarget.Character
+                 elseif activeFlingTarget:IsA("Model") then targetChar = activeFlingTarget end
+             end
+             
+             if not targetChar then
+                 currentFlingState = FlingState.RETURNING
+                 return
+             end
+             
+             local tRoot = getRoot(targetChar)
+             local tHum = getHumanoid(targetChar)
+             if not tRoot or not tHum or tHum.Health <= 0 then
+                 currentFlingState = FlingState.RETURNING
+                 return
+             end
+             
+             -- 1. Equip Weapon
+             local tool = myChar:FindFirstChildOfClass("Tool")
+             if not tool then
+                 local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+                 if bpTool then 
+                     myHum:EquipTool(bpTool) 
+                     tool = bpTool
+                 end
+             end
+             
+             -- 2. Movement: Stay near Master (Orbit/Follow)
+             -- Unlike Melee, we do NOT chase the target. We flank the Master.
+             if currentTargetName and currentTargetName ~= "Nenhum" then
+                 local master = Players:FindFirstChild(currentTargetName)
+                 if master and master.Character then
+                     local mRoot = getRoot(master.Character)
+                     if mRoot then
+                         -- Move to Master + Offset (e.g. 5 studs right/left)
+                         -- Simple follow for now, roughly 5 studs away
+                         local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
+                         if distToMaster > 10 then
+                             myHum:MoveTo(mRoot.Position)
+                         elseif distToMaster < 4 then
+                              -- Too close? Back up slightly
+                              myHum:MoveTo(myRoot.Position + (myRoot.Position - mRoot.Position).Unit * 2)
+                         else
+                              -- Good range, maybe strafe?
+                              myHum:MoveTo(myRoot.Position) -- Stay put roughly? Or micro-move
+                         end
+                     end
+                 end
+             end
+             
+             -- 3. Aim & Attack
+             -- Force Look at Target
+             myRoot.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z))
+             
+             -- Master Safety (LOS Check)
+             local safeToShoot = true
+             if currentTargetName and currentTargetName ~= "Nenhum" then
+                 local master = Players:FindFirstChild(currentTargetName)
+                 if master and master.Character then
+                      local mRoot = getRoot(master.Character)
+                      if mRoot then
+                           -- Check if Master is in front of us
+                           local toMaster = (mRoot.Position - myRoot.Position).Unit
+                           local lookDir = myRoot.CFrame.LookVector
+                           local dot = lookDir:Dot(toMaster)
+                           
+                           local distM = (mRoot.Position - myRoot.Position).Magnitude
+                           local distE = (tRoot.Position - myRoot.Position).Magnitude
+                           
+                           -- If Master is in front (cone > 0.5 ~ 60deg) AND closer than enemy
+                           if dot > 0.5 and distM < distE then
+                               safeToShoot = false
+                           end
+                      end
+                 end
+             end
+             
+             if safeToShoot and tool then
+                 tool:Activate()
+             end
+
         -- [STATE: RETURNING] Fly back (Fallback / Deprecated by TP)
         elseif currentFlingState == FlingState.RETURNING then
              -- We can keep this as a failsafe, or just TP. Let's TP for consistency.
@@ -1767,6 +1881,17 @@ local BotCore = (function()
         warn("[BotDebug] Melee Enabled: " .. tostring(state))
         isMeleeEnabled = state
         CheckLoop()
+    end
+    
+    function BotCore:SetRangedEnabled(state)
+        warn("[BotDebug] Ranged Enabled: " .. tostring(state))
+        isRangedEnabled = state
+        CheckLoop()
+    end
+    
+    function BotCore:SetRangedDistance(dist)
+        Config.RangedDistance = dist
+        warn("[BotConfig] Ranged Distance: " .. dist)
     end
     
     function BotCore:SetDefenseTeamCheck(state)
@@ -3204,6 +3329,17 @@ CombatGroup:InteractiveList("NPCs Alvos Ativos", GetNPCListFunc, function(name)
    BotCore:RemoveTargetNPC(name)
 end, function(name)
    BotCore:RemoveTargetNPC(name)
+end)
+
+-- 1.6 GROUP: RANGED COMBAT (New)
+local RangedGroup = BotMe:Group("Modo Combate (Ranged)")
+
+RangedGroup:Toggle("Ativar Longa Distância", false, function(v)
+    BotCore:SetRangedEnabled(v)
+end)
+
+RangedGroup:Slider("Distância de Tiro", 20, 300, 100, function(v)
+    BotCore:SetRangedDistance(v)
 end)
 
 
