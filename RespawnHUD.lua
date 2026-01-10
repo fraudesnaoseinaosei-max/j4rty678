@@ -849,9 +849,11 @@ local BotCore = (function()
         RaycastDistance = 5,
         StuckThreshold = 2,
         JumpPower = 50,
+        JumpPower = 50,
         VisionRadius = 50, -- Vision Radius
         DefenseRadius = 15, -- Radius to trigger defense on Master
-        FlingSafeDistance = 3 -- Distance from Master to disable Fling (Safety)
+        FlingSafeDistance = 3, -- Distance from Master to disable Fling (Safety)
+        DefenseSafeZone = 20 -- Do not attack/fling enemies if they are this close to Master
     }
     
     local FlingTargets = {} -- List of targets to attack
@@ -1104,9 +1106,16 @@ local BotCore = (function()
                                     local eHum = getHumanoid(enemy.Character)
                                     if eRoot and eHum and eHum.Health > 0 then
                                         local d = (eRoot.Position - mRoot.Position).Magnitude
-                                        if d < nearestDist then
-                                            nearestDist = d
-                                            nearestEnemy = enemy
+                                        
+                                        -- [SAFE ZONE CHECK]
+                                        -- If enemy is too close to Master, do NOT attack (to prevent collateral damage)
+                                        if d < Config.DefenseSafeZone then
+                                             -- Skip this enemy, they are in the Safe Zone
+                                        else
+                                            if d < nearestDist then
+                                                nearestDist = d
+                                                nearestEnemy = enemy
+                                            end
                                         end
                                     end
                                 end
@@ -1306,13 +1315,9 @@ local BotCore = (function()
              
              -- Position: Walk INTO them CONSTANTLY
              -- Force movement even if close
-             myHum:MoveTo(tRoot.Position)
-             
-             -- Aggressive Push:
-             -- If we are touching or very close, ensure we keep trying to step ON them
-             if distFromMe < 3 then
-                 myHum:MoveTo(tRoot.Position + (tRoot.Position - myRoot.Position).Unit * 2)
-             end
+             -- [AGGRESSIVE MOVEMENT FIX]
+             -- Instead of moving TO the target, move PAST them to ensure we push through.
+             myHum:MoveTo(tRoot.Position + (tRoot.Position - myRoot.Position).Unit * 10)
              
              -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
              if distFromMe > 5 then
@@ -1467,6 +1472,11 @@ local BotCore = (function()
     function BotCore:SetFlingSafeDistance(dist)
         Config.FlingSafeDistance = dist
         warn("[BotConfig] Fling Safe Distance: " .. dist)
+    end
+    
+    function BotCore:SetDefenseSafeZone(dist)
+        Config.DefenseSafeZone = dist
+        warn("[BotConfig] Defense Safe Zone: " .. dist)
     end
 
     function BotCore:SetEnabled(state)
@@ -2770,7 +2780,7 @@ task.spawn(function()
     end
 end)
 
-BotGroup:Slider("Distância (Min/Max)", 6, 30, 10, function(v)
+BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
     BotCore:SetDistances(v, v+5)
 end, function(v) return v .. "/" .. (v+5) end)
 
@@ -2786,6 +2796,9 @@ BotGroup:Slider("Distância Segura (Fling)", 1, 50, 3, function(v)
     BotCore:SetFlingSafeDistance(v)
 end)
 
+BotGroup:Slider("Zona Segura (Mestre)", 1, 50, 20, function(v)
+    BotCore:SetDefenseSafeZone(v)
+end)
 
 BotGroup:Toggle("Modo Defesa (Auto)", false, function(v)
     BotCore:SetDefenseEnabled(v)
