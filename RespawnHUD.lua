@@ -20,7 +20,7 @@ if not playerGui then return end
 -- SECURITY: EXECUTION GUARD
 -- ==========================================
 if getgenv().DreeZyHubLoaded then
-    warn("DreeZy-HUB jÃ¡ estÃ¡ carregado!")
+    warn("DreeZy-HUB já está carregado!")
     return
 end
 getgenv().DreeZyHubLoaded = true
@@ -48,7 +48,7 @@ if getgenv().ESPTracers == nil then getgenv().ESPTracers = false end
 if not getgenv().UnlockMouseKey then getgenv().UnlockMouseKey = Enum.KeyCode.P end
 
 -- ==========================================
--- BUNDLED MODULES (LÃ“GICA PRESERVADA)
+-- BUNDLED MODULES (LÓGICA PRESERVADA)
 -- ==========================================
 
 -- [0] MOUSE UNLOCKER CORE (Aggressive Modal Fix)
@@ -1243,6 +1243,7 @@ local BotCore = (function()
              if not tRoot then currentFlingState = FlingState.RETURNING return end
              
              -- [DYNAMIC SAFE ZONE ABORT]
+             -- Check if enemy ran back to the Master. If so, ABORT to protect Master.
              if isDefenseEnabled and currentTargetName and currentTargetName ~= "Nenhum" then
                 local master = Players:FindFirstChild(currentTargetName)
                 if master and master.Character then
@@ -1259,16 +1260,22 @@ local BotCore = (function()
                 end
              end
 
-             -- [!] ENABLE COLLISIONS
+             -- [!] ENABLE COLLISIONS FOR FLING TO WORK
              for _, p in pairs(myChar:GetChildren()) do
                  if p:IsA("BasePart") then p.CanCollide = true end
              end
              
+             -- [!] FORCE SIMULATION RADIUS (Network Ownership)
              pcall(function()
                  settings().Physics.AllowSleep = false
                  sethiddenproperty(LocalPlayer, "SimulationRadius", math.huge)
                  sethiddenproperty(LocalPlayer, "MaxSimulationRadius", math.huge)
              end)
+             
+             -- [!] ENABLE COLLISIONS
+             for _, p in pairs(myChar:GetChildren()) do
+                 if p:IsA("BasePart") then p.CanCollide = true end
+             end
              
              -- --- CATCH & RELEASE MECH ---
              local targetVelocity = tRoot.AssemblyLinearVelocity.Magnitude
@@ -1276,39 +1283,37 @@ local BotCore = (function()
              local distFromMe = (tRoot.Position - myRoot.Position).Magnitude
              
              -- [PHASE 1: RELEASE & WATCH]
+             -- If they are moving fast (>300), let go and watch them fly.
              if targetVelocity > 300 then
+                 -- Hover in place
                  myRoot.AssemblyLinearVelocity = Vector3.zero
                  myRoot.AssemblyAngularVelocity = Vector3.zero
+                 -- Don't lock CFrame. Just wait.
                  
+                 -- [SUCCESS CHECK]
+                 -- If they are far away (>100) AND moving fast (or gone), we win.
                  if targetMovedDist > 100 or distFromMe > 80 then
-                      warn("[BotAttack] Fling Successful!")
+                      warn("[BotAttack] Fling Successful! (Yeeted " .. math.floor(targetMovedDist) .. " studs)")
                       TeleportReturn()
                       return
                  end
+                 
              end
              
-             -- [SAFE DISTANCE CHECK] (Strict Ghost Mode)
+             -- [SAFE DISTANCE CHECK]
+             -- If Master is too close to me while I am flinging, STOP SPINNING to avoid hitting Master.
              if currentTargetName and currentTargetName ~= "Nenhum" then
                  local master = Players:FindFirstChild(currentTargetName)
                  if master and master.Character then
                       local mRoot = getRoot(master.Character)
                       if mRoot then
                           local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
-                          -- Buffer + 2
-                          if distToMaster < Config.FlingSafeDistance + 2 then
+                          if distToMaster < Config.FlingSafeDistance then
                                -- SAFETY STOP
                                myRoot.AssemblyAngularVelocity = Vector3.zero
                                myRoot.AssemblyLinearVelocity = Vector3.zero
-                               
-                               -- FORCE NO COLLIDE
-                               for _, p in pairs(myChar:GetChildren()) do
-                                   if p:IsA("BasePart") then p.CanCollide = false end
-                               end
-                               
-                               -- Safety Walk
-                               local pushDir = (tRoot.Position - myRoot.Position).Unit
-                               if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
-                               myHum:Move(pushDir)
+                               -- We can still move towards enemy, but no dangerous spin
+                               myHum:MoveTo(tRoot.Position)
                                return
                           end
                       end
@@ -1316,78 +1321,65 @@ local BotCore = (function()
              end
              
              -- [PHASE 2: WALKFLING SPIN]
+             -- "Pipoco" Fix: Do NOT Skyrocket. Stay grounded.
+             -- Move INTO the target to force physics collision overlap.
+             
+             -- High Angular Velocity for Spin
              myRoot.AssemblyAngularVelocity = Vector3.new(0, 10000, 0)
              
-             -- [AGGRESSIVE MOVEMENT - ULTIMATE]
+             -- Reset Linear Velocity to avoid flying away (keep it normal physics)
+             -- myRoot.AssemblyLinearVelocity = Vector3.zero 
+             -- Actually, we want to PUSH them.
+             
+             -- Position: Walk INTO them CONSTANTLY
+             -- Force movement even if close
+             -- Position: Walk INTO them CONSTANTLY
+             -- Force movement even if close
+             -- [AGGRESSIVE MOVEMENT FIX]
+             -- Instead of moving TO the target, move PAST them to ensure we push through.
              local pushDir = (tRoot.Position - myRoot.Position).Unit
+             -- Handle NaN (Not a Number) if positions are identical (overlap)
              if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
              
-             myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z))
-             myHum:Move(pushDir)
+             myHum:MoveTo(tRoot.Position + pushDir * 10)
              
-             -- [DYNAMIC TARGET SWITCHING]
-             if isDefenseEnabled and tick() % 0.5 < 0.1 then 
-                 local master = Players:FindFirstChild(currentTargetName)
-                 if master and master.Character then
-                     local mRoot = getRoot(master.Character)
-                     if mRoot then
-                         local myDistToMaster = (tRoot.Position - mRoot.Position).Magnitude
-                         local bestEnemy = nil
-                         local bestDist = myDistToMaster - 5
-                         
-                         for _, enemy in pairs(Players:GetPlayers()) do
-                             if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget then
-                                 local allow = true
-                                 if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                                 if DefenseConfig.TeamCheck and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                                 
-                                 if allow and enemy.Character then
-                                     local eRoot = getRoot(enemy.Character)
-                                     local eHum = getHumanoid(enemy.Character)
-                                     if eRoot and eHum and eHum.Health > 0 then
-                                         local ed = (eRoot.Position - mRoot.Position).Magnitude
-                                         if ed < bestDist and ed > Config.DefenseSafeZone then
-                                             bestDist = ed
-                                             bestEnemy = enemy
-                                         end
-                                     end
-                                 end
-                             end
-                         end
-                         
-                         if bestEnemy then
-                             warn("[BotDefense] Switching target: " .. bestEnemy.Name)
-                             activeFlingTarget = bestEnemy
-                         end
-                     end
-                 end
+             -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
+             if distFromMe > 5 then
+                  myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 2)
              end
- 
+
              -- --- SAFETY CHECK ---
              local flingDuration = tick() - flingStartTime
              
              if flingDuration > 0.5 then
+                 -- Void Check (Relative)
                  local currentY = myRoot.Position.Y
                  local fallenDist = (flingStartHeight or currentY) - currentY
                  
                  if fallenDist > 50 then
-                     warn("[BotSafety] Void Detected.")
+                     warn("[BotSafety] Void/Fall Detected! Returning.")
                      TeleportReturn()
                      return
                  end
- 
+
+                 -- Death Check
                  if tHum and tHum.Health <= 0 then
-                     warn("[BotAttack] Target Eliminated.")
+                     warn("[BotAttack] Target Eliminated. Returning.")
                      TeleportReturn()
                      return
                  end
              end
              
-             if flingDuration > 8 then
-                 warn("[BotAttack] Timeout. Returning.")
+             -- [TIMEOUT]
+             if flingDuration > 8 then -- Give it more time (8s) to land a hit
+                 warn("[BotAttack] Timeout (8s). Returning.")
                  TeleportReturn()
              end
+             
+             -- Keep tracking total displacement
+             -- lastTargetPos is NOT updated here, to measure from START of fling.
 
+        -- [STATE: RETURNING] Fly back (Fallback / Deprecated by TP)
         elseif currentFlingState == FlingState.RETURNING then
              -- We can keep this as a failsafe, or just TP. Let's TP for consistency.
              local targetPlr = Players:FindFirstChild(currentTargetName)
@@ -1634,7 +1626,7 @@ function VoidLib:CreateWindow()
     MTitle.Parent = ModalFrame
 
     local MDesc = Instance.new("TextLabel")
-    MDesc.Text = "Este script possui funcionalidades avanÃ§adas de PvP e Visual.\n\nâš ï¸ IMPORTANTE âš ï¸\nUse a tecla [RIGHT SHIFT] para Minimizar ou Maximizar o menu a qualquer momento."
+    MDesc.Text = "Este script possui funcionalidades avançadas de PvP e Visual.\n\n⚠️ IMPORTANTE ⚠️\nUse a tecla [RIGHT SHIFT] para Minimizar ou Maximizar o menu a qualquer momento."
     MDesc.Font = Enum.Font.Gotham
     MDesc.TextSize = 14
     MDesc.TextColor3 = Themes.Text
@@ -2537,12 +2529,12 @@ end, function(name)
 end)
 table.insert(aimbotDependents, ignoreTeamList)
 
-local fovS = AimbotGroup:Slider("Campo de VisÃ£o (FOV)", 20, 500, AimbotCore:GetFOV(), function(v)
+local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, AimbotCore:GetFOV(), function(v)
     AimbotCore:SetFOV(v)
 end)
 table.insert(aimbotDependents, fovS)
 
-local easingS = AimbotGroup:Slider("SuavizaÃ§Ã£o (Easing)", 1, 10, math.floor(getgenv().AimbotEasing * 10), function(v)
+local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor(getgenv().AimbotEasing * 10), function(v)
     getgenv().AimbotEasing = v / 10 
 end)
 table.insert(aimbotDependents, easingS)
@@ -2640,8 +2632,8 @@ for _, frame in pairs(espDependents) do
     frame.Visible = isESPEnabled
 end
 
-local HeadGroup = Visual:Group("CabeÃ§as (Headshot)")
-local headToggle = HeadGroup:Toggle("Expandir CabeÃ§as", HeadESP:IsEnabled(), function(v)
+local HeadGroup = Visual:Group("Cabeças (Headshot)")
+local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
     HeadESP:SetEnabled(v)
 end)
 HeadGroup:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
@@ -2659,7 +2651,7 @@ local UtilityGroup = Local:Group("Utilidades")
 UtilityGroup:Bind("Tecla Soltar Cursor", getgenv().UnlockMouseKey, function(key)
     getgenv().UnlockMouseKey = key
 end)
-UtilityGroup:Button("Resetar Cursor (EmergÃªncia)", function()
+UtilityGroup:Button("Resetar Cursor (Emergência)", function()
     MouseUnlocker:SetUnlocked(true)
     task.wait(0.1)
     MouseUnlocker:SetUnlocked(false)
@@ -2812,7 +2804,7 @@ task.spawn(function()
     end
 end)
 
-BotGroup:Slider("DistÃ¢ncia (Min/Max)", 1, 20, 10, function(v)
+BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
     BotCore:SetDistances(v, v+5)
 end, function(v) return v .. "/" .. (v+5) end)
 
@@ -2820,11 +2812,11 @@ BotGroup:Slider("Teleporte (Max Dist)", 30, 500, 120, function(v)
     BotCore:SetTeleportDistance(v)
 end)
 
-BotGroup:Slider("Raio de VisÃ£o (Ataque)", 10, 500, 50, function(v)
+BotGroup:Slider("Raio de Visão (Ataque)", 10, 500, 50, function(v)
     BotCore:SetVisionRadius(v)
 end)
 
-BotGroup:Slider("DistÃ¢ncia Segura (Fling)", 1, 50, 3, function(v)
+BotGroup:Slider("Distância Segura (Fling)", 1, 50, 3, function(v)
     BotCore:SetFlingSafeDistance(v)
 end)
 
@@ -2865,7 +2857,7 @@ BotsGroup:Toggle("Missel player(fling)", false, function(v)
 end)
 
 
--- >>> TAB: CONFIGURAÃ‡Ã•ES
+-- >>> TAB: CONFIGURAÇÕES
 local Settings = Win:Tab("Configs")
 local ManagerGroup = Settings:Group("Gerenciamento")
 
@@ -2873,7 +2865,7 @@ local function Notify(msg)
     game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text=msg, Duration=3})
 end
 
-ManagerGroup:Button("Salvar ConfiguraÃ§Ãµes", function()
+ManagerGroup:Button("Salvar Configurações", function()
     if writefile then
         local config = {
             aimbot = AimbotCore:IsEnabled(),
@@ -2891,13 +2883,13 @@ ManagerGroup:Button("Salvar ConfiguraÃ§Ãµes", function()
             unlockKey = getgenv().UnlockMouseKey.Name
         }
         writefile("DreeZy_Voidware.json", HttpService:JSONEncode(config))
-        Notify("ConfiguraÃ§Ãµes salvas!")
+        Notify("Configurações salvas!")
     else
-        Notify("Executor nÃ£o suporta writefile")
+        Notify("Executor não suporta writefile")
     end
 end)
 
-ManagerGroup:Button("Carregar ConfiguraÃ§Ãµes", function()
+ManagerGroup:Button("Carregar Configurações", function()
     if isfile and isfile("DreeZy_Voidware.json") then
         local config = HttpService:JSONDecode(readfile("DreeZy_Voidware.json"))
         if config then
@@ -2920,14 +2912,14 @@ ManagerGroup:Button("Carregar ConfiguraÃ§Ãµes", function()
             HeadESP:SetHeadSize(config.headSize)
             
             if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
-            Notify("ConfiguraÃ§Ãµes carregadas!")
+            Notify("Configurações carregadas!")
         end
     else
         Notify("Nenhum save encontrado")
     end
 end)
 
-local InfoGroup = Settings:Group("InformaÃ§Ãµes")
+local InfoGroup = Settings:Group("Informações")
 InfoGroup:Button("Criado por DreeZy", function() setclipboard("DreeZy") end)
 
 Notify("DreeZy Voidware V2 Carregado!")
