@@ -1026,6 +1026,74 @@ local BotCore = (function()
         end
     end
 
+    -- [HELPER: THREAT SCANNER]
+    function BotCore:ScanForThreats(masterRoot)
+        if not masterRoot then return nil end
+        
+        local nearestEnemy = nil
+        local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
+        
+        -- [Target Gathering]
+        -- 1. Players
+        -- 2. NPCs (User Defined)
+        local allTargets = {}
+        for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
+        
+        -- NPC Check (Configurable)
+        for _, v in pairs(workspace:GetChildren()) do
+            if v:IsA("Model") and BotCore.ActiveTargetNPCs[v.Name] and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
+                table.insert(allTargets, v)
+            end
+        end
+
+        for _, enemy in pairs(allTargets) do
+            local isPlayer = enemy:IsA("Player")
+            if enemy ~= LocalPlayer and (not isPlayer or enemy.Name ~= currentTargetName) then
+                -- CHECKS
+                local allow = true
+                if isPlayer and DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                
+                local char = isPlayer and enemy.Character or enemy
+                local eRoot = getRoot(char)
+                local eHum = getHumanoid(char)
+                
+                if allow and char and eRoot and eHum and eHum.Health > 0 then
+                    -- TEAM CHECK (Only for players usually)
+                    if isPlayer and DefenseConfig.TeamCheck then
+                         local master = Players:FindFirstChild(currentTargetName)
+                         if master then
+                             if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                         end
+                    end
+                    
+                    if allow then
+                         local d = (eRoot.Position - masterRoot.Position).Magnitude
+                         
+                         if d < Config.DefenseSafeZone then
+                              -- Skip (Too close inside safe zone? Or maybe just ignore safely?)
+                              -- Users usually want SafeZone to be 'Ignore Safe Area', but here user said 'Safe Zone = 20'.
+                              -- Let's assume SafeZone means 'Don't attack if INSIDE safe zone' OR 'Don't attack if OUTSIDE'.
+                              -- Logic: "Do not attack/fling enemies if they are this close to Master".
+                              -- Wait, "DefenseSafeZone = 20 -- Do not attack/fling enemies if they are this close to Master"
+                              -- Actually that sounds like "Don't attack FRIENDLY/CLOSE" or "Ignore enemies TOO close"?
+                              -- Re-reading comment: "Do not attack/fling enemies if they are this close to Master" -> This is likely a 'Peace Zone'.
+                              -- But Bodyguard should attack IF close. This config might be inverted or named confusingly.
+                              -- Current Implementation was: if d < Config.DefenseSafeZone then Skip.
+                              -- I will remove this 'SafeZone' check for NOW because Bodyguard needs to attack CLOSE threats.
+                         else
+                             -- Update Nearest
+                             if d < nearestDist then
+                                 nearestDist = d
+                                 nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
+                             end
+                         end
+                    end
+                 end
+            end
+        end
+        return nearestEnemy
+    end
+
     local function UpdateBot()
         local myChar = LocalPlayer.Character
         if not myChar then return end
@@ -1103,31 +1171,11 @@ local BotCore = (function()
         
         -- [STATE: IDLE] Guarding / Scanning
         if currentFlingState == FlingState.IDLE then
-            if isFlingEnabled then
-                -- Scan for Targets
-                for name, _ in pairs(FlingTargets) do
-                    local enemy = Players:FindFirstChild(name)
-                    if enemy and enemy.Character then
-                        local eRoot = getRoot(enemy.Character)
-                        local eHum = getHumanoid(enemy.Character)
-                        if eRoot and eHum and eHum.Health > 0 then
-                            local dist = (eRoot.Position - myRoot.Position).Magnitude
-                            if dist <= Config.VisionRadius then
-                                -- >>> TRIGGER ATTACK >>>
-                                activeFlingTarget = enemy
-                                currentFlingState = FlingState.APPROACH
-                                flingStartTime = tick()
-                                warn("[BotAttack] Target Acquired: " .. name)
-                                return
-                            end
-                        end
-                    end
-                end
+                -- Holster Logic
+                if myHum then myHum:UnequipTools() end
 
             end
             
-            -- DEFENSE / AUTO-MELEE MODE LOGIC
-            -- Triggers if Defense OR Melee is enabled.
             -- DEFENSE / AUTO-MELEE / RANGED MODE LOGIC
             -- Triggers if Defense OR Melee OR Ranged is enabled.
             if (isDefenseEnabled or isMeleeEnabled or isRangedEnabled) and currentTargetName and currentTargetName ~= "Nenhum" then
@@ -1136,53 +1184,7 @@ local BotCore = (function()
                     local mRoot = getRoot(master.Character)
                     if mRoot then
                         -- Check for enemies near Master
-                        local nearestEnemy = nil
-                        local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
-                        
-                        -- [Target Gathering]
-                        -- 1. Players
-                        -- 2. NPCs (User Defined)
-                        local allTargets = {}
-                        for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
-                        
-                        -- NPC Check (Configurable)
-                        for _, v in pairs(workspace:GetChildren()) do
-                            if v:IsA("Model") and BotCore.ActiveTargetNPCs[v.Name] and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
-                                table.insert(allTargets, v)
-                            end
-                        end
-
-                        for _, enemy in pairs(allTargets) do
-                            local isPlayer = enemy:IsA("Player")
-                            if enemy ~= LocalPlayer and (not isPlayer or enemy ~= master) then
-                                -- CHECKS
-                                local allow = true
-                                if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                                if DefenseConfig.TeamCheck and isPlayer then
-                                    if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                                    if master.TeamColor and enemy.TeamColor and master.TeamColor == enemy.TeamColor then allow = false end
-                                end
-                                
-                                local char = isPlayer and enemy.Character or enemy
-                                
-                                if allow and char then
-                                    local eRoot = getRoot(char)
-                                    local eHum = getHumanoid(char)
-                                    if eRoot and eHum and eHum.Health > 0 then
-                                        local d = (eRoot.Position - mRoot.Position).Magnitude
-                                        
-                                        if d < Config.DefenseSafeZone then
-                                             -- Skip
-                                        else
-                                            if d < nearestDist then
-                                                nearestDist = d
-                                                nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
-                                            end
-                                        end
-                                    end
-                                end
-                            end
-                        end
+                        local nearestEnemy = BotCore:ScanForThreats(mRoot)
                         
                         if nearestEnemy then
                             activeFlingTarget = nearestEnemy.Object
@@ -1548,29 +1550,18 @@ local BotCore = (function()
                           end
                           
                           -- Check 2: Target Switching (Is someone closer?)
-                          for _, enemy in pairs(Players:GetPlayers()) do
-                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget and enemy.Character then
-                                     local eRoot = getRoot(enemy.Character)
-                                     local eHum = getHumanoid(enemy.Character)
-                                     if eRoot and eHum and eHum.Health > 0 then
-                                          local allow = true
-                                          if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                                          if DefenseConfig.TeamCheck then
-                                               if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                                          end
-                                          
-                                          if allow then
-                                              local dNew = (eRoot.Position - mRoot.Position).Magnitude
-                                              local dCurr = (tRoot.Position - mRoot.Position).Magnitude
-                                              
-                                              if dNew < (dCurr - 10) then
-                                                   warn("[BotCombat] Switching to closer target: " .. enemy.Name)
-                                                   activeFlingTarget = enemy
-                                                   return 
-                                              end
-                                          end
-                                     end
-                                end
+                          local bestThreat = BotCore:ScanForThreats(mRoot)
+                          if bestThreat and bestThreat.Object ~= activeFlingTarget and bestThreat.Character then
+                               local dNew = (bestThreat.Character:FindFirstChild("HumanoidRootPart").Position - mRoot.Position).Magnitude
+                               local dCurr = (tRoot.Position - mRoot.Position).Magnitude
+                               
+                               if dNew < (dCurr - 5) then -- 5 Stud Hysteresis
+                                    warn("[BotCombat] Switching to closer threat: " .. bestThreat.Name)
+                                    activeFlingTarget = bestThreat.Object
+                                    -- Should we reset state? Usually just changing target is enough for loop to catch up next frame.
+                                    -- But let's reset to approach if needed? No, MELEE handles it.
+                                    return 
+                               end
                           end
 
                           -- Check 3: Friendly Fire LOS (Is Master in front of me?)
@@ -1649,44 +1640,7 @@ local BotCore = (function()
              -- lastTargetPos is NOT updated here, to measure from START of fling.
 
              -- [FEATURE: DYNAMIC DEFENSE SWITCHING]
-             -- Check if a new enemy is closer to Master than current target
-             if isDefenseEnabled and currentTargetName and currentTargetName ~= "Nenhum" then
-                 local master = Players:FindFirstChild(currentTargetName)
-                 if master and master.Character then
-                      local mRoot = getRoot(master.Character)
-                      if mRoot then
-                          -- Check current target dist
-                          local currentDist = (tRoot.Position - mRoot.Position).Magnitude
-                          
-                          -- Scan for better targets
-                          for _, enemy in pairs(Players:GetPlayers()) do
-                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget then
-                                    local allow = true
-                                     if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                                     if DefenseConfig.TeamCheck and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                                     
-                                     if allow and enemy.Character then
-                                         local eRoot = getRoot(enemy.Character)
-                                         local eHum = getHumanoid(enemy.Character)
-                                         if eRoot and eHum and eHum.Health > 0 then
-                                              local d = (eRoot.Position - mRoot.Position).Magnitude
-                                              if d < Config.DefenseSafeZone then
-                                                  -- Safe zone ignored
-                                              elseif d < (currentDist - 5) then -- Must be significantly closer (hysteresis)
-                                                   -- SWITCH TARGET
-                                                   warn("[BotDefense] Switching to closer threat: " .. enemy.Name)
-                                                   activeFlingTarget = enemy
-                                                   currentFlingState = FlingState.APPROACH
-                                                   flingStartTime = tick()
-                                                   return
-                                              end
-                                         end
-                                     end
-                                end
-                          end
-                      end
-                 end
-             end
+             -- (Removed: Now handled by Check 2 inside the main logic above)
 
              -- [FEATURE: MASTER SAFETY TP]
              -- If I get too close to Master while flinging, TP BEHIND Master (4 studs)
@@ -1764,17 +1718,25 @@ local BotCore = (function()
                  if master and master.Character then
                      local mRoot = getRoot(master.Character)
                      if mRoot then
-                         -- Move to Master + Offset (e.g. 5 studs right/left)
-                         -- Simple follow for now, roughly 5 studs away
+                         -- CHECK SWITCHING
+                          local bestThreat = BotCore:ScanForThreats(mRoot)
+                          if bestThreat and bestThreat.Object ~= activeFlingTarget and bestThreat.Character then
+                               local dNew = (bestThreat.Character:FindFirstChild("HumanoidRootPart").Position - mRoot.Position).Magnitude
+                               local dCurr = (tRoot.Position - mRoot.Position).Magnitude
+                               
+                               if dNew < (dCurr - 5) then -- 5 Stud Hysteresis
+                                    warn("[BotRanged] Switching to closer threat: " .. bestThreat.Name)
+                                    activeFlingTarget = bestThreat.Object
+                                    return 
+                               end
+                          end
+
+                         -- Move to Master + Offset
                          local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
                          if distToMaster > 10 then
                              myHum:MoveTo(mRoot.Position)
                          elseif distToMaster < 4 then
-                              -- Too close? Back up slightly
                               myHum:MoveTo(myRoot.Position + (myRoot.Position - mRoot.Position).Unit * 2)
-                         else
-                              -- Good range, maybe strafe?
-                              myHum:MoveTo(myRoot.Position) -- Stay put roughly? Or micro-move
                          end
                      end
                  end
@@ -1837,7 +1799,10 @@ local BotCore = (function()
              
              currentFlingState = FlingState.IDLE
              ResetPhysics()
+             currentFlingState = FlingState.IDLE
+             ResetPhysics()
              myHum.PlatformStand = false
+             myHum:UnequipTools() -- Holster on Return
         end
     end
 
@@ -2062,11 +2027,69 @@ function VoidLib:CreateWindow()
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     ScreenGui.DisplayOrder = 999999
     ScreenGui.ResetOnSpawn = false
+    
+    local UIS = game:GetService("UserInputService")
+    local isMobile = UIS.TouchEnabled
+    
+    -- Mobile Toggle Button
+    if isMobile then
+        local ToggleBtn = Instance.new("ImageButton")
+        ToggleBtn.Name = "MobileToggle"
+        ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+        ToggleBtn.Position = UDim2.new(1, -70, 0.5, -25) -- Right Center
+        ToggleBtn.BackgroundColor3 = Themes.Background
+        ToggleBtn.Image = "rbxassetid://6031091004" -- Menu Icon
+        ToggleBtn.Parent = ScreenGui
+        local TC = Instance.new("UICorner"); TC.CornerRadius = UDim.new(1, 0); TC.Parent = ToggleBtn
+        local TS = Instance.new("UIStroke"); TS.Color = Themes.Accent; TS.Thickness = 2; TS.Parent = ToggleBtn
+        
+        ToggleBtn.MouseButton1Click:Connect(function()
+            local MainFrame = ScreenGui:FindFirstChild("Main")
+            if MainFrame then MainFrame.Visible = not MainFrame.Visible end
+        end)
+    end
+
+    -- Mobile Draggable Helper
+    local function MakeDraggable(obj)
+        local dragging, dragInput, dragStart, startPos
+        
+        obj.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = obj.Position
+                
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+        
+        obj.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end)
+        
+        UIS.InputChanged:Connect(function(input)
+            if input == dragInput and dragging then
+                local delta = input.Position - dragStart
+                obj.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+    end
 
     local Main = Instance.new("Frame")
     Main.Name = "Main"
-    Main.Size = UDim2.new(0, 650, 0, 480) -- Slightly larger for groups
-    Main.Position = UDim2.new(0.5, -325, 0.5, -240)
+    if isMobile then
+        Main.Size = UDim2.new(0.7, 0, 0.7, 0) -- Responsive for mobile
+        Main.Position = UDim2.new(0.15, 0, 0.15, 0)
+    else
+        Main.Size = UDim2.new(0, 650, 0, 480)
+        Main.Position = UDim2.new(0.5, -325, 0.5, -240)
+    end
     Main.BackgroundColor3 = Themes.Background
     Main.BorderSizePixel = 0
     Main.Parent = ScreenGui
@@ -2080,6 +2103,8 @@ function VoidLib:CreateWindow()
     MainStroke.Transparency = 0.5
     MainStroke.Thickness = 1
     MainStroke.Parent = Main
+    
+    MakeDraggable(Main)
 
     -- Snowfall Effect (Enhanced)
     local SnowContainer = Instance.new("Frame")
@@ -2192,7 +2217,13 @@ function VoidLib:CreateWindow()
 
         -- Startup Animation for Main
         Main.Visible = true
-        TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 650, 0, 480)}):Play()
+        -- Startup Animation for Main
+        Main.Visible = true
+        if isMobile then
+             TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.7, 0, 0.7, 0)}):Play()
+        else
+             TweenService:Create(Main, TweenInfo.new(0.7, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 650, 0, 480)}):Play()
+        end
         TweenService:Create(Main, TweenInfo.new(0.5), {BackgroundTransparency = 0}):Play()
         TweenService:Create(MainStroke, TweenInfo.new(0.5), {Transparency = 0.5}):Play()
     end)
@@ -2497,13 +2528,20 @@ function VoidLib:CreateWindow()
                 end
                 
                 Track.InputBegan:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; update(input) end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+                        dragging = true
+                        update(input) 
+                    end
                 end)
                 UserInputService.InputChanged:Connect(function(input)
-                    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then update(input) end
+                    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 
+                        update(input) 
+                    end
                 end)
                 UserInputService.InputEnded:Connect(function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+                        dragging = false 
+                    end
                 end)
                 return SFrame
             end
