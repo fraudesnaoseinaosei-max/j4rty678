@@ -364,6 +364,16 @@ local AimbotCore = (function()
                     activeTargetPart = "Head"
                 end
             end
+            
+            -- Legit Mode: Periodically switch target part (Humanization)
+            -- Switches every 0.15s to 0.4s
+            if getgenv().LegitMode and currentTarget and currentTarget.Character then
+                if not getgenv().LastLegitSwitch then getgenv().LastLegitSwitch = 0 end
+                if tick() - getgenv().LastLegitSwitch > (math.random() * 0.25 + 0.15) then
+                    activeTargetPart = getRandomPart(currentTarget.Character)
+                    getgenv().LastLegitSwitch = tick()
+                end
+            end
 
             if currentTarget.Character then
                 -- Fallback if the specific part is missing (e.g. lost limb)
@@ -2055,24 +2065,6 @@ function VoidLib:CreateWindow()
     local UIS = game:GetService("UserInputService")
     local isMobile = UIS.TouchEnabled
     
-    -- Mobile Toggle Button
-    if isMobile then
-        local ToggleBtn = Instance.new("ImageButton")
-        ToggleBtn.Name = "MobileToggle"
-        ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
-        ToggleBtn.Position = UDim2.new(1, -70, 0.5, -25) -- Right Center
-        ToggleBtn.BackgroundColor3 = Themes.Background
-        ToggleBtn.Image = "rbxassetid://6031091004" -- Menu Icon
-        ToggleBtn.Parent = ScreenGui
-        local TC = Instance.new("UICorner"); TC.CornerRadius = UDim.new(1, 0); TC.Parent = ToggleBtn
-        local TS = Instance.new("UIStroke"); TS.Color = Themes.Accent; TS.Thickness = 2; TS.Parent = ToggleBtn
-        
-        ToggleBtn.MouseButton1Click:Connect(function()
-            local MainFrame = ScreenGui:FindFirstChild("Main")
-            if MainFrame then MainFrame.Visible = not MainFrame.Visible end
-        end)
-    end
-
     -- Mobile Draggable Helper
     local function MakeDraggable(obj)
         local dragging, dragInput, dragStart, startPos
@@ -2103,6 +2095,26 @@ function VoidLib:CreateWindow()
                 obj.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
             end
         end)
+    end
+
+    -- Mobile Toggle Button
+    if isMobile then
+        local ToggleBtn = Instance.new("ImageButton")
+        ToggleBtn.Name = "MobileToggle"
+        ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+        ToggleBtn.Position = UDim2.new(1, -70, 0.5, -25) -- Right Center
+        ToggleBtn.BackgroundColor3 = Themes.Background
+        ToggleBtn.Image = "rbxassetid://6031091004" -- Menu Icon
+        ToggleBtn.Parent = ScreenGui
+        local TC = Instance.new("UICorner"); TC.CornerRadius = UDim.new(1, 0); TC.Parent = ToggleBtn
+        local TS = Instance.new("UIStroke"); TS.Color = Themes.Accent; TS.Thickness = 2; TS.Parent = ToggleBtn
+        
+        ToggleBtn.MouseButton1Click:Connect(function()
+            local MainFrame = ScreenGui:FindFirstChild("Main")
+            if MainFrame then MainFrame.Visible = not MainFrame.Visible end
+        end)
+        
+        MakeDraggable(ToggleBtn) -- Make it draggable!
     end
 
     local Main = Instance.new("Frame")
