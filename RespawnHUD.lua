@@ -1025,81 +1025,63 @@ local BotCore = (function()
     end
 
     -- [HELPER: THREAT SCANNER]
+    -- [HELPER: THREAT SCANNER]
     function BotCore:ScanForThreats(masterRoot)
-        -- Support Self-Defense even if Master is null (though logic requires masterRoot currently for Defense)
-        -- We will check Master Proximity OR Self Proximity
-        
+        -- Identify closest threat to Master OR Self
         local nearestEnemy = nil
         local nearestDist = isRangedEnabled and Config.RangedDistance or Config.DefenseRadius
-        
-        -- Self Defense Priority
-        local selfDistPriority = Config.SelfDefenseRadius
-        
-        -- Master Root is optional usually, but currently required by caller.
-        -- If masterRoot is nil, we can default to myRoot? 
-        -- Caller ensures masterRoot is passed if following.
-        -- If not following, masterRoot might be nil.
         
         local myRoot = nil
         if LocalPlayer.Character then myRoot = getRoot(LocalPlayer.Character) end
 
-        -- [Target Gathering]
-        -- 1. Players
-        -- 2. NPCs (User Defined)
+        -- Gather Targets
         local allTargets = {}
         for _, p in pairs(Players:GetPlayers()) do table.insert(allTargets, p) end
-        
-        -- NPC Check (Configurable)
-        for _, v in pairs(workspace:GetChildren()) do
-            if v:IsA("Model") and BotCore.ActiveTargetNPCs[v.Name] and v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
-                table.insert(allTargets, v)
+        for name, _ in pairs(ActiveTargetNPCs) do
+            for _, v in pairs(workspace:GetChildren()) do
+                 if v.Name == name and v:IsA("Model") and v:FindFirstChild("Humanoid") then
+                     table.insert(allTargets, v)
+                 end
             end
         end
 
         for _, enemy in pairs(allTargets) do
             local isPlayer = enemy:IsA("Player")
             if enemy ~= LocalPlayer and (not isPlayer or enemy.Name ~= currentTargetName) then
-                -- CHECKS
                 local allow = true
                 if isPlayer and DefenseConfig.IgnoreList[enemy.Name] then allow = false end
                 
+                -- Team Check
+                if isPlayer and DefenseConfig.TeamCheck then
+                     local master = Players:FindFirstChild(currentTargetName)
+                     if master and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                end
+
                 local char = isPlayer and enemy.Character or enemy
                 local eRoot = getRoot(char)
                 local eHum = getHumanoid(char)
-                
+
                 if allow and char and eRoot and eHum and eHum.Health > 0 then
-                    -- TEAM CHECK (Only for players usually)
-                    if isPlayer and DefenseConfig.TeamCheck then
-                         local master = Players:FindFirstChild(currentTargetName)
-                         if master then
-                             if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                         end
-                    end
-                    
-                    if allow then
-                         local dMaster = masterRoot and (eRoot.Position - masterRoot.Position).Magnitude or 9999
-                         local dSelf = myRoot and (eRoot.Position - myRoot.Position).Magnitude or 9999
-                         
-                         if dMaster < Config.DefenseSafeZone then
-                              -- [SAFE ZONE RESTORED]
-                              -- Skip target if inside Safe Zone (Passive mode/Bodyguard boundary)
-                              -- This makes the "Zona Segura" slider work again.
-                         else
-                             -- Logic: Prioritize CLOSEST to Master OR Self (if very close)
-                             -- If enemy is < 15 studs from ME (Self Defense), immediate priority.
-                             
-                             local score = dMaster
-                             if dSelf < Config.SelfDefenseRadius then
-                                 score = dSelf - 50 -- Boost priority for self-defense
-                             end
-                             
-                             if score < nearestDist then
-                                 nearestDist = score
-                                 nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
-                             end
-                         end
-                    end
-                 end
+                     local dMaster = masterRoot and (eRoot.Position - masterRoot.Position).Magnitude or 9999
+                     local dSelf = myRoot and (eRoot.Position - myRoot.Position).Magnitude or 9999
+                     
+                     -- Safe Zone Check
+                     if dMaster < Config.DefenseSafeZone then
+                          -- Ignore target in Safe Zone
+                     else
+                          -- Score: Lower is better (closer)
+                          -- Prioritize Close to Self (Self Defense)
+                          local score = dMaster
+                          if dSelf < Config.SelfDefenseRadius then
+                              score = dSelf - 100 -- Massive priority boost
+                          end
+                          
+                          if score < nearestDist then
+                              nearestDist = score
+                              nearestEnemy = {Object = enemy, Character = char, Name = enemy.Name}
+                          end
+                     end
+                end
             end
         end
         return nearestEnemy
