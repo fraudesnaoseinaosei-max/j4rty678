@@ -809,7 +809,6 @@ local BotCore = (function()
     local isFollowEnabled = false
     local isFlingEnabled = false
     local isDefenseEnabled = false -- New Defense Mode
-    local isMeleeEnabled = false -- New Melee Mode
 
     
 
@@ -1125,17 +1124,9 @@ local BotCore = (function()
                         
                         if nearestEnemy then
                             activeFlingTarget = nearestEnemy
-                            
-                            -- DECIDE ATTACK MODE
-                            if isMeleeEnabled then
-                                currentFlingState = "MELEE"
-                                warn("[BotDefense] Defending Master! Melee Attacking: " .. nearestEnemy.Name)
-                            else
-                                currentFlingState = FlingState.APPROACH
-                                warn("[BotDefense] Defending Master! Flinging: " .. nearestEnemy.Name)
-                            end
-                            
+                            currentFlingState = FlingState.APPROACH
                             flingStartTime = tick()
+                            warn("[BotDefense] Defending Master! Attacking: " .. nearestEnemy.Name)
                             return
                         end
                     end
@@ -1409,100 +1400,9 @@ local BotCore = (function()
                   myHum:MoveTo(tRoot.Position + pushDir * 10)
              end
              
+             -- Optional: Teleport slightly if too far to re-engage, but avoid hard lock
              if distFromMe > 5 then
                   myRoot.CFrame = tRoot.CFrame * CFrame.new(0, 0, 2)
-             end
-
-        -- [STATE: MELEE COMBAT]
-        elseif currentFlingState == "MELEE" then
-             if not activeFlingTarget or not activeFlingTarget.Character then
-                 currentFlingState = FlingState.RETURNING
-                 return
-             end
-             
-             local tRoot = getRoot(activeFlingTarget.Character)
-             local tHum = getHumanoid(activeFlingTarget.Character)
-             if not tRoot or not tHum or tHum.Health <= 0 then
-                 currentFlingState = FlingState.RETURNING
-                 return
-             end
-             
-             -- 1. Equip Weapon (First Tool)
-             local tool = myChar:FindFirstChildOfClass("Tool")
-             if not tool then
-                 local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-                 if bpTool then 
-                     myHum:EquipTool(bpTool) 
-                     tool = bpTool
-                 end
-             end
-             
-             -- 2. Master Safety Logic (LOS)
-             local safeToAttack = true
-             if currentTargetName and currentTargetName ~= "Nenhum" then
-                 local master = Players:FindFirstChild(currentTargetName)
-                 if master and master.Character then
-                      local mRoot = getRoot(master.Character)
-                      if mRoot then
-                          -- Check 1: Distance Limit relative to Master (Don't chase too far)
-                          if (tRoot.Position - mRoot.Position).Magnitude > (Config.DefenseRadius * 2) then
-                               warn("[BotCombat] Target too far. Returning.")
-                               currentFlingState = FlingState.RETURNING
-                               return
-                          end
-                          
-                          -- Check 2: Target Switching (Is someone closer?)
-                          for _, enemy in pairs(Players:GetPlayers()) do
-                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget and enemy.Character then
-                                     local eRoot = getRoot(enemy.Character)
-                                     local eHum = getHumanoid(enemy.Character)
-                                     if eRoot and eHum and eHum.Health > 0 then
-                                          local allow = true
-                                          if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
-                                          if DefenseConfig.TeamCheck then
-                                               if master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
-                                          end
-                                          
-                                          if allow then
-                                              local dNew = (eRoot.Position - mRoot.Position).Magnitude
-                                              local dCurr = (tRoot.Position - mRoot.Position).Magnitude
-                                              
-                                              if dNew < (dCurr - 10) then
-                                                   warn("[BotCombat] Switching to closer target: " .. enemy.Name)
-                                                   activeFlingTarget = enemy
-                                                   return 
-                                              end
-                                          end
-                                     end
-                                end
-                          end
-
-                          -- Check 3: Friendly Fire LOS (Is Master in front of me?)
-                          local toTarget = (tRoot.Position - myRoot.Position).Unit
-                          local toMaster = (mRoot.Position - myRoot.Position).Unit
-                          local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
-                          local distToTarget = (tRoot.Position - myRoot.Position).Magnitude
-                          
-                          if distToMaster < distToTarget then
-                               local dot = toTarget:Dot(toMaster)
-                               if dot > 0.5 then -- Cone check
-                                   safeToAttack = false
-                                   myHum:MoveTo(myRoot.Position + myRoot.CFrame.RightVector * 5)
-                               end
-                          end
-                      end
-                 end
-             end
-             
-             -- 3. Chase & Attack
-             if tool and safeToAttack then
-                  tool:Activate()
-             end
-             
-             -- Aim & Move
-             if safeToAttack then
-                 myRoot.CFrame = CFrame.new(myRoot.Position, Vector3.new(tRoot.Position.X, myRoot.Position.Y, tRoot.Position.Z))
-                 myHum:MoveTo(tRoot.Position)
              end
 
              -- --- SAFETY CHECK ---
@@ -1713,12 +1613,6 @@ local BotCore = (function()
     function BotCore:SetDefenseEnabled(state)
         warn("[BotDebug] Defense Enabled: " .. tostring(state))
         isDefenseEnabled = state
-        CheckLoop()
-    end
-    
-    function BotCore:SetMeleeEnabled(state)
-        warn("[BotDebug] Melee Enabled: " .. tostring(state))
-        isMeleeEnabled = state
         CheckLoop()
     end
     
@@ -3087,17 +2981,6 @@ BotGroup:InteractiveList("Alvo(s) Fling", GetPlayersList, function(name)
 end, function(name)
     BotCore:RemoveFlingTarget(name)
 end)
-
--- 1.5 GROUP: COMBATE (New)
-local CombatGroup = BotMe:Group("Modo Combate (Melee)")
-
-CombatGroup:Toggle("Ativar Combate (Auto)", false, function(v)
-    BotCore:SetMeleeEnabled(v)
-end)
--- Reuse Defense team check or add specific? User asked for "obviamente o checar time".
--- We can reuse the same config for simplicity or add a specific one.
--- Let's rely on the main Defense Config since it's "Modo Combate... tanto no auto defesa".
-
 
 
 -- 2. GROUP: BOTS (Second)
