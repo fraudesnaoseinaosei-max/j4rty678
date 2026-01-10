@@ -697,10 +697,6 @@ local ESPCore = (function()
                 drawings.HealthFg.Visible = false
                 drawings.Tracer.Visible = false
             end
-            -- State Machine continued...
-            -- [AUTO JUMP]
-            SmartAutoJump(myHum, myRoot)
-            
             return
         end
         local camera = workspace.CurrentCamera
@@ -1004,12 +1000,41 @@ local BotCore = (function()
          end
     end
 
+    -- [HELPER: MOVEMENT]
+    local function SmartAutoJump(hum, root)
+        if not hum or not root then return end
+        if hum.MoveDirection.Magnitude > 0.1 then
+            -- Raycast Forward (Waist/Leg height)
+            local origin = root.Position - Vector3.new(0, 1.5, 0) -- Lower body
+            local dir = hum.MoveDirection * 2 -- 2 studs forward
+            
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = {LocalPlayer.Character}
+            
+            local result = workspace:Raycast(origin, dir, params)
+            if result then
+                -- Obstacle hit!
+                -- Check if it's low enough to jump (raycast higher)
+                local higherOrigin = root.Position + Vector3.new(0, 0, 0) -- Hips/Navel
+                local higherResult = workspace:Raycast(higherOrigin, dir, params)
+                
+                if not higherResult then
+                     -- Low obstacle, JUMP!
+                     hum.Jump = true
+                end
+            end
+        end
+    end
+
     local function UpdateBot()
         local myChar = LocalPlayer.Character
         if not myChar then return end
         local myRoot = getRoot(myChar)
         local myHum = getHumanoid(myChar)
         if not myRoot or not myHum then return end
+        
+        -- [AUTO JUMP]
+        SmartAutoJump(myHum, myRoot)
         
         -- Safe Helper to Reset Physics
         local function ResetPhysics()
@@ -2008,31 +2033,7 @@ local BotCore = (function()
         warn("[BotConfig] Virtual Click: " .. tostring(state))
     end
 
-    -- [HELPER: MOVEMENT]
-    local function SmartAutoJump(hum, root)
-        if not hum or not root then return end
-        if hum.MoveDirection.Magnitude > 0.1 then
-            -- Raycast Forward (Waist/Leg height)
-            local origin = root.Position - Vector3.new(0, 1.5, 0) -- Lower body
-            local dir = hum.MoveDirection * 2 -- 2 studs forward
-            
-            local params = RaycastParams.new()
-            params.FilterDescendantsInstances = {LocalPlayer.Character}
-            
-            local result = workspace:Raycast(origin, dir, params)
-            if result then
-                -- Obstacle hit!
-                -- Check if it's low enough to jump (raycast higher)
-                local higherOrigin = root.Position + Vector3.new(0, 0, 0) -- Hips/Navel
-                local higherResult = workspace:Raycast(higherOrigin, dir, params)
-                
-                if not higherResult then
-                     -- Low obstacle, JUMP!
-                     hum.Jump = true
-                end
-            end
-        end
-    end
+
 
     return BotCore
 end)()
