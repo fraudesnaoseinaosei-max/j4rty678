@@ -916,6 +916,15 @@ do -- Start BotCore Block
             hum:MoveTo(position)
         end
     end
+    
+    function BotCore:SetWalkSpeed(speed)
+        Config.BotWalkSpeed = speed
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = speed
+        end
+    end
+    Config.BotWalkSpeed = 16 -- Default
 
     local lastDebugPrint = 0
     local wanderingTarget = nil
@@ -1335,24 +1344,55 @@ do -- Start BotCore Block
              local tRoot = getRoot(activeFlingTarget.Character)
              if not tRoot then currentFlingState = FlingState.RETURNING return end
              
-             -- Noclip & Float
-             if myHum.Sit then myHum.Sit = false end
-             for _, p in pairs(myChar:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = false end end
-             myHum.PlatformStand = true
-             
              local dist = (myRoot.Position - tRoot.Position).Magnitude
              
-             if dist < 5 then
-                 -- Arrived!
-                 currentFlingState = FlingState.FLINGING
-                 lastTargetPos = tRoot.Position
-                 flingStartTime = tick()
-                 flingStartHeight = myRoot.Position.Y -- CAPTURE START HEIGHT
+             -- [LOGIC FIX: FLYING VS WALKING]
+             -- If this is "Defense Mode" (protecting master) and Missile is OFF, we should WALK/RUN.
+             -- Only use Flight if Missile Mode (Fling Enabled) is explicitly ON.
+             local useFlight = isFlingEnabled -- Missile Mode
+             
+             if not useFlight then
+                 -- WALK/RUN APPROACH (Defense Mode)
+                 if myHum.Sit then myHum.Sit = false end
+                 
+                 -- Ensure normal physics for walking
+                 myHum.PlatformStand = false
+                 for _, p in pairs(myChar:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = true end end
+                 
+                 -- Set Speed (Boost for attack?) or use Config Speed
+                 myHum.WalkSpeed = Config.BotWalkSpeed or 16
+                 
+                 if dist < 5 then
+                     currentFlingState = FlingState.FLINGING
+                     lastTargetPos = tRoot.Position
+                     flingStartTime = tick()
+                 else
+                     -- Just run to them
+                     myHum:MoveTo(tRoot.Position)
+                     -- Check if stuck? pathfinding? For approach, direct is usually fine unless walled.
+                     if dist > 20 then
+                         -- Use pathfinding if far? For now direct.
+                     end
+                 end
+                 
              else
-                 -- Fly towards
-                 local dir = (tRoot.Position - myRoot.Position).Unit
-                 myRoot.AssemblyLinearVelocity = dir * 80 -- Controlled speed
-                 myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
+                 -- FLIGHT APPROACH (Missile Fling)
+                 if myHum.Sit then myHum.Sit = false end
+                 for _, p in pairs(myChar:GetChildren()) do if p:IsA("BasePart") then p.CanCollide = false end end
+                 myHum.PlatformStand = true
+                 
+                 if dist < 5 then
+                     -- Arrived!
+                     currentFlingState = FlingState.FLINGING
+                     lastTargetPos = tRoot.Position
+                     flingStartTime = tick()
+                     flingStartHeight = myRoot.Position.Y 
+                 else
+                     -- Fly towards
+                     local dir = (tRoot.Position - myRoot.Position).Unit
+                     myRoot.AssemblyLinearVelocity = dir * 80 -- Controlled speed
+                     myRoot.CFrame = CFrame.new(myRoot.Position, tRoot.Position)
+                 end
              end
 
      -- [STATE: FLINGING] Spin & Neutralize
@@ -3428,6 +3468,10 @@ do
 
     BotGroup:Toggle("Ativar Seguir", false, function(v)
         BotCore:SetFollowEnabled(v)
+    end)
+    
+    BotGroup:Slider("Velocidade Bot", 16, 100, 16, function(v)
+        BotCore:SetWalkSpeed(v)
     end)
 
     BotGroup:Slider("Distância (Min/Max)", 1, 20, 10, function(v)
