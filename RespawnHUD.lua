@@ -3232,7 +3232,7 @@ do
     end)
     table.insert(aimbotDependents, ignoreTeamList)
 
-    local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, AimbotCore:GetFOV(), function(v)
+    local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, (AimbotCore:GetFOV() or 90), function(v)
         AimbotCore:SetFOV(v)
     end)
     table.insert(aimbotDependents, fovS)
@@ -3316,17 +3316,17 @@ do
         end
     end)
 
-    local nameToggle = ESPGroup:Toggle("Mostrar Nomes", getgenv().ESPNames, function(v)
+    local nameToggle = ESPGroup:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
         getgenv().ESPNames = v
     end)
     table.insert(espDependents, nameToggle.Frame)
 
-    local healthToggle = ESPGroup:Toggle("Barra de Vida", getgenv().ESPHealth, function(v)
+    local healthToggle = ESPGroup:Toggle("Barra de Vida", (getgenv().ESPHealth or false), function(v)
         getgenv().ESPHealth = v
     end)
     table.insert(espDependents, healthToggle.Frame)
 
-    local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", getgenv().ESPTracers, function(v)
+    local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", (getgenv().ESPTracers or false), function(v)
         getgenv().ESPTracers = v
     end)
     table.insert(espDependents, tracerToggle.Frame)
@@ -3355,7 +3355,7 @@ do
     end)
 
     local UtilityGroup = Local:Group("Utilidades")
-    UtilityGroup:Bind("Tecla Soltar Cursor", getgenv().UnlockMouseKey, function(key)
+    UtilityGroup:Bind("Tecla Soltar Cursor", (getgenv().UnlockMouseKey or Enum.KeyCode.RightControl), function(key)
         getgenv().UnlockMouseKey = key
     end)
     UtilityGroup:Button("Resetar Cursor (Emergência)", function()
