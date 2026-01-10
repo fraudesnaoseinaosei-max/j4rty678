@@ -2690,6 +2690,42 @@ function VoidLib:CreateWindow()
                 return IFrame
             end
 
+            function GroupObj:Input(text, callback)
+                local IFrame = CreateElementFrame()
+                IFrame.Size = UDim2.new(1, 0, 0, 60)
+                
+                local ILab = Instance.new("TextLabel")
+                ILab.Text = text
+                ILab.Size = UDim2.new(1, -10, 0, 20)
+                ILab.Position = UDim2.new(0, 10, 0, 5)
+                ILab.BackgroundTransparency = 1
+                ILab.Font = Enum.Font.GothamMedium
+                ILab.TextColor3 = Themes.Text
+                ILab.TextSize = 13
+                ILab.TextXAlignment = Enum.TextXAlignment.Left
+                ILab.Parent = IFrame
+                
+                local Box = Instance.new("TextBox")
+                Box.Size = UDim2.new(1, -20, 0, 25)
+                Box.Position = UDim2.new(0, 10, 0, 30)
+                Box.BackgroundColor3 = Color3.fromRGB(45,45,50)
+                Box.Text = ""
+                Box.PlaceholderText = "..."
+                Box.Font = Enum.Font.Gotham
+                Box.TextSize = 12
+                Box.TextColor3 = Themes.Text
+                Box.PlaceholderColor3 = Themes.TextDim
+                Box.TextXAlignment = Enum.TextXAlignment.Left
+                Box.Parent = IFrame
+                local BC = Instance.new("UICorner"); BC.CornerRadius = UDim.new(0, 4); BC.Parent = Box
+                
+                Box.FocusLost:Connect(function()
+                    pcall(callback, Box.Text)
+                end)
+                
+                return IFrame
+            end
+
             return GroupObj
         end
 
