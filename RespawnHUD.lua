@@ -1015,9 +1015,10 @@ local BotCore = (function()
              if not myChar then return end
              
              -- Iterate ALL parts of both characters for total safety
-             for _, myPart in pairs(myChar:GetChildren()) do
+             -- Use GetDescendants to catch Accessories, Handles, etc.
+             for _, myPart in pairs(myChar:GetDescendants()) do
                  if myPart:IsA("BasePart") then
-                     for _, tPart in pairs(targetChar:GetChildren()) do
+                     for _, tPart in pairs(targetChar:GetDescendants()) do
                          if tPart:IsA("BasePart") then
                              local key = myPart.Name .. "_" .. tPart.Name
                              if not noCollisionConstraintParts[key] or not noCollisionConstraintParts[key].Parent then
@@ -1027,6 +1028,9 @@ local BotCore = (function()
                                  ncc.Part1 = tPart
                                  ncc.Parent = myPart
                                  noCollisionConstraintParts[key] = ncc
+                                 
+                                 -- Double safety: If we can, sets group? No, script is client-side usually.
+                                 -- This Constraint should be enough.
                              end
                          end
                      end
@@ -1331,27 +1335,59 @@ local BotCore = (function()
              -- Force movement even if close
              -- [AGGRESSIVE MOVEMENT FIX]
              
-             local targetSpeed = tRoot.AssemblyLinearVelocity.Magnitude
+             -- [FEATURE: MASTER SAFETY CHECK (STRICT)]
+             -- If Master is within 8 studs (panic distance), ZERO ALL.
+             if currentTargetName and currentTargetName ~= "Nenhum" then
+                  local master = Players:FindFirstChild(currentTargetName)
+                  if master and master.Character then
+                      local mRoot = getRoot(master.Character)
+                      if mRoot and (mRoot.Position - myRoot.Position).Magnitude < 8 then
+                           myRoot.AssemblyLinearVelocity = Vector3.zero
+                           myRoot.AssemblyAngularVelocity = Vector3.zero
+                           -- Just follow safely, no spin.
+                           myHum:MoveTo(tRoot.Position)
+                           return
+                      end
+                  end
+             end
              
-             -- [FEATURE: MOVING INTERCEPTION]
-             if targetSpeed >= 2 then
-                  stationaryStartTime = 0
-                  
-                  -- Intercept 4 studs IN FRONT
-                  local moveDir = tRoot.AssemblyLinearVelocity.Unit
-                  -- Handle vertical vs horizontal? Just use full velocity unit.
-                  local interceptPos = tRoot.Position + (moveDir * 4) 
-                  
-                  -- TP to Intercept point, Looking AT the target
-                  myRoot.CFrame = CFrame.new(interceptPos, tRoot.Position)
-                  
-                  -- Push BACK into them
-                  myHum:MoveTo(tRoot.Position)
-                  
+             local targetVelocity = tRoot.AssemblyLinearVelocity
+             local horizSpeed = Vector3.new(targetVelocity.X, 0, targetVelocity.Z).Magnitude
+             
+             -- [FEATURE: PREDICTIVE INTERCEPTION]
+             -- If target is moving fast (>10) AND running away (dist > 6)
+             -- TP in FRONT of them to cut them off.
+             local distToTarget = (myRoot.Position - tRoot.Position).Magnitude
+             
+             if horizSpeed > 8 and distToTarget > 6 then
+                  -- Calculate "Front" 4 studs ahead
+                  local moveDir = (targetVelocity * Vector3.new(1,0,1)).Unit
+                  if moveDir.X == moveDir.X then -- NaN check
+                       local interceptPos = tRoot.Position + (moveDir * 5) -- 5 studs ahead
+                       
+                       -- TP there, looking AT them
+                       myRoot.CFrame = CFrame.new(interceptPos, tRoot.Position)
+                       
+                       -- Push BACK into them (Opposite to their movement)
+                       -- This forces a head-on collision
+                       myHum:MoveTo(tRoot.Position)
+                       
+                       -- Reset statonary timer
+                       stationaryStartTime = 0
+                  end
+             elseif horizSpeed < 2 then
+                  -- [FEATURE: STATIONARY FLING]
+                  if not stationaryStartTime or stationaryStartTime == 0 then
+                      stationaryStartTime = tick()
+                  elseif tick() - stationaryStartTime > 1.5 then -- Faster trigger (1.5s)
+                       -- TP Inside + Tremble
+                       myRoot.CFrame = tRoot.CFrame
+                       local tremble = Vector3.new(math.random()-0.5, 0, math.random()-0.5) * 2
+                       myHum:MoveTo(tRoot.Position + tremble)
+                  end
              else
-                  -- [FEATURE: STATIONARY FLING fallback]
-                  -- If stationary logic hasn't kicked in via time check (below), default to push thru
-                  -- The specific time-check logic is further down, so here we just do basic push
+                  -- Standard Chase/Push
+                  stationaryStartTime = 0
                   local pushDir = (tRoot.Position - myRoot.Position).Unit
                   if pushDir.X ~= pushDir.X then pushDir = myRoot.CFrame.LookVector end
                   myHum:MoveTo(tRoot.Position + pushDir * 10)
