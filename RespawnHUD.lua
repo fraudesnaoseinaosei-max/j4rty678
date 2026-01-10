@@ -835,6 +835,7 @@ local BotCore = (function()
         TeamCheck = false,
         IgnoreList = {}
     }
+    local stationaryStartTime = 0
 
 
     -- Configuration
@@ -1376,8 +1377,89 @@ local BotCore = (function()
                  TeleportReturn()
              end
              
-             -- Keep tracking total displacement
              -- lastTargetPos is NOT updated here, to measure from START of fling.
+
+             -- [FEATURE: DYNAMIC DEFENSE SWITCHING]
+             -- Check if a new enemy is closer to Master than current target
+             if isDefenseEnabled and currentTargetName and currentTargetName ~= "Nenhum" then
+                 local master = Players:FindFirstChild(currentTargetName)
+                 if master and master.Character then
+                      local mRoot = getRoot(master.Character)
+                      if mRoot then
+                          -- Check current target dist
+                          local currentDist = (tRoot.Position - mRoot.Position).Magnitude
+                          
+                          -- Scan for better targets
+                          for _, enemy in pairs(Players:GetPlayers()) do
+                                if enemy ~= LocalPlayer and enemy ~= master and enemy ~= activeFlingTarget then
+                                    local allow = true
+                                     if DefenseConfig.IgnoreList[enemy.Name] then allow = false end
+                                     if DefenseConfig.TeamCheck and master.Team and enemy.Team and master.Team == enemy.Team then allow = false end
+                                     
+                                     if allow and enemy.Character then
+                                         local eRoot = getRoot(enemy.Character)
+                                         local eHum = getHumanoid(enemy.Character)
+                                         if eRoot and eHum and eHum.Health > 0 then
+                                              local d = (eRoot.Position - mRoot.Position).Magnitude
+                                              if d < Config.DefenseSafeZone then
+                                                  -- Safe zone ignored
+                                              elseif d < (currentDist - 5) then -- Must be significantly closer (hysteresis)
+                                                   -- SWITCH TARGET
+                                                   warn("[BotDefense] Switching to closer threat: " .. enemy.Name)
+                                                   activeFlingTarget = enemy
+                                                   currentFlingState = FlingState.APPROACH
+                                                   flingStartTime = tick()
+                                                   return
+                                              end
+                                         end
+                                     end
+                                end
+                          end
+                      end
+                 end
+             end
+
+             -- [FEATURE: MASTER SAFETY TP]
+             -- If I get too close to Master while flinging, TP BEHIND Master (4 studs)
+             if currentTargetName and currentTargetName ~= "Nenhum" then
+                  local master = Players:FindFirstChild(currentTargetName)
+                  if master and master.Character then
+                       local mRoot = getRoot(master.Character)
+                       if mRoot then
+                           local distToMaster = (mRoot.Position - myRoot.Position).Magnitude
+                           -- "Segurança de 2 studs" -> trigger. Actually using FlingSafeDistance config or hardcoded 3
+                           local safeDist = Config.FlingSafeDistance or 2
+                           if distToMaster < safeDist then
+                                warn("[BotSafety] Too close to Master! Teleporting behind.")
+                                -- TP 4 studs behind Master
+                                myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, 4)
+                                myRoot.AssemblyLinearVelocity = Vector3.zero
+                                myRoot.AssemblyAngularVelocity = Vector3.zero
+                                -- Reset state slightly to re-orient
+                                return
+                           end
+                       end
+                  end
+             end
+
+             -- [FEATURE: STATIONARY FLING]
+             -- If target is stationary > 2s, TP Inside + Random Push
+             local targetSpeed = tRoot.AssemblyLinearVelocity.Magnitude
+             if targetSpeed < 2 then
+                  if not stationaryStartTime or stationaryStartTime == 0 then
+                      stationaryStartTime = tick()
+                  elseif tick() - stationaryStartTime > 2 then
+                       -- TRIGGER STATIC FLING
+                       -- 1. TP Inside
+                       myRoot.CFrame = tRoot.CFrame -- Exact overlap
+                       
+                       -- 2. Random Push/Touch (Oscillate)
+                       local randomOffset = Vector3.new(math.random()-0.5, 0, math.random()-0.5) * 1.5
+                       myHum:MoveTo(tRoot.Position + randomOffset)
+                  end
+             else
+                  stationaryStartTime = 0
+             end
 
         -- [STATE: RETURNING] Fly back (Fallback / Deprecated by TP)
         elseif currentFlingState == FlingState.RETURNING then
