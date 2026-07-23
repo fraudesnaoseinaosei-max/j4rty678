@@ -1360,6 +1360,8 @@ local MinimapCore = (function()
     local Minimap = {}
     local isEnabled = false
     local isRound = true
+    local isLocked = false
+    local isTerrainEnabled = false
     local mapSize = 150
     local mapZoom = 250
 
@@ -1368,11 +1370,36 @@ local MinimapCore = (function()
     local mapCorner = nil
     local centerBlip = nil
     local blips = {} -- { [Player] = Frame }
+    local terrainParts = {} -- { {part=BasePart, frame=Frame} }
 
     local dragging = false
     local dragInput = nil
     local dragStart = nil
     local startPos = nil
+
+    local function GatherTerrain()
+        for _, t in pairs(terrainParts) do t.frame:Destroy() end
+        terrainParts = {}
+        if not isTerrainEnabled then return end
+        
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:IsA("BasePart") and v.Anchored and v.Transparency < 1 then
+                if v.Size.X > 5 or v.Size.Z > 5 then
+                    -- Ignorar se for personagem
+                    if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory")) then continue end
+                    
+                    local f = Instance.new("Frame")
+                    f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
+                    f.BackgroundTransparency = 0.5
+                    f.BorderSizePixel = 1
+                    f.BorderColor3 = Color3.fromRGB(50, 50, 50)
+                    f.ZIndex = 1
+                    f.Parent = mapFrame
+                    table.insert(terrainParts, {part = v, frame = f})
+                end
+            end
+        end
+    end
 
     -- Inicializa a GUI
     local function initUI()
@@ -1425,6 +1452,7 @@ local MinimapCore = (function()
 
         -- Drag Logic
         container.InputBegan:Connect(function(input)
+            if isLocked then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
                 dragStart = input.Position
@@ -1439,6 +1467,7 @@ local MinimapCore = (function()
         end)
 
         container.InputChanged:Connect(function(input)
+            if isLocked then return end
             if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
                 dragInput = input
             end
@@ -1446,6 +1475,7 @@ local MinimapCore = (function()
     end
 
     local function updateDrag()
+        if isLocked then dragging = false return end
         if dragging and dragInput then
             local delta = dragInput.Position - dragStart
             container.Position = UDim2.new(
@@ -1509,6 +1539,47 @@ local MinimapCore = (function()
         local myPos = myRoot.Position
         local camera = workspace.CurrentCamera
         local camY = camera.CFrame.Rotation
+        
+        local camLook = camera.CFrame.LookVector
+        local camLookFlat = Vector3.new(camLook.X, 0, camLook.Z).Unit
+        local camRight = Vector3.new(camLookFlat.Z, 0, -camLookFlat.X)
+        local mapScale = (mapSize / 2) / mapZoom
+        
+        -- Atualizar Terreno
+        if isTerrainEnabled then
+            local camYaw = math.atan2(-camLookFlat.X, -camLookFlat.Z)
+            for _, tData in pairs(terrainParts) do
+                local part = tData.part
+                local frame = tData.frame
+                if not part or not part.Parent then
+                    frame.Visible = false
+                    continue
+                end
+                
+                local offset = part.Position - myPos
+                local dist = Vector3.new(offset.X, 0, offset.Z).Magnitude
+                
+                if dist > mapZoom * 1.5 then
+                    frame.Visible = false
+                else
+                    frame.Visible = true
+                    local relX = offset:Dot(camRight)
+                    local relZ = offset:Dot(camLookFlat)
+                    
+                    local uiX = relX * mapScale
+                    local uiY = -relZ * mapScale
+                    
+                    local sx = math.max(2, (part.Size.X * mapScale))
+                    local sy = math.max(2, (part.Size.Z * mapScale))
+                    
+                    frame.Size = UDim2.new(0, sx, 0, sy)
+                    frame.Position = UDim2.new(0.5, uiX - (sx/2), 0.5, uiY - (sy/2))
+                    
+                    local partYaw = math.atan2(-part.CFrame.LookVector.X, -part.CFrame.LookVector.Z)
+                    frame.Rotation = math.deg(partYaw - camYaw)
+                end
+            end
+        end
 
         for _, player in pairs(Players:GetPlayers()) do
             if player == LocalPlayer then continue end
@@ -1533,21 +1604,12 @@ local MinimapCore = (function()
             else
                 blip.Visible = true
                 
-                -- Transformar posição do mundo para espaço relativo da câmera
                 local offset = enemyPos - myPos
-                -- Queremos projetar no plano XZ baseado na rotação da câmera (Yaw)
-                -- Rotacionar o vetor offset pelo inverso da rotação Y da câmera
-                local camLook = camera.CFrame.LookVector
-                local camLookFlat = Vector3.new(camLook.X, 0, camLook.Z).Unit
-                local camRight = Vector3.new(camLookFlat.Z, 0, -camLookFlat.X) -- Perpendicular
-
                 -- Projeção
                 local relX = offset:Dot(camRight)
                 local relZ = offset:Dot(camLookFlat)
 
-                -- Escalar para o tamanho do mapa (Centro = 0, Borda = mapSize/2)
-                -- Multiplica por -1 no Z pois no Roblox frente é Z negativo, e no mapa queremos cima = Y negativo
-                local mapScale = (mapSize / 2) / mapZoom
+                -- Escalar
                 local uiX = relX * mapScale
                 local uiY = -relZ * mapScale
 
@@ -1613,6 +1675,30 @@ local MinimapCore = (function()
         return isRound
     end
     
+    function Minimap:SetLocked(locked)
+        isLocked = locked
+        if getgenv then getgenv().MinimapLocked = locked end
+    end
+    
+    function Minimap:IsLocked()
+        return isLocked
+    end
+    
+    function Minimap:SetTerrain(enabled)
+        isTerrainEnabled = enabled
+        if getgenv then getgenv().MinimapTerrain = enabled end
+        if enabled then
+            task.spawn(GatherTerrain)
+        else
+            for _, t in pairs(terrainParts) do t.frame:Destroy() end
+            terrainParts = {}
+        end
+    end
+    
+    function Minimap:IsTerrain()
+        return isTerrainEnabled
+    end
+    
     function Minimap:SetZoom(zoom)
         mapZoom = zoom
         if getgenv then getgenv().MinimapZoom = zoom end
@@ -1637,6 +1723,8 @@ local MinimapCore = (function()
     if getgenv then
         mapSize = getgenv().MinimapSize or 150
         isRound = (getgenv().MinimapRound == nil) and true or getgenv().MinimapRound
+        isLocked = (getgenv().MinimapLocked == nil) and false or getgenv().MinimapLocked
+        isTerrainEnabled = (getgenv().MinimapTerrain == nil) and false or getgenv().MinimapTerrain
         mapZoom = getgenv().MinimapZoom or 250
         
         if getgenv().MinimapEnabled then
@@ -2976,6 +3064,16 @@ do
     end)
     table.insert(minimapDependents, minimapRoundToggle.Frame)
     
+    local minimapLockToggle = MinimapGroup:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
+        MinimapCore:SetLocked(v)
+    end)
+    table.insert(minimapDependents, minimapLockToggle.Frame)
+    
+    local minimapTerrainToggle = MinimapGroup:Toggle("Mostrar Mapa (Terreno)", MinimapCore:IsTerrain(), function(v)
+        MinimapCore:SetTerrain(v)
+    end)
+    table.insert(minimapDependents, minimapTerrainToggle.Frame)
+    
     local minimapSizeSlider = MinimapGroup:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
         MinimapCore:SetSize(v)
     end)
@@ -3160,6 +3258,8 @@ do
                 highAlertArrowSize = HighAlertCore:GetArrowSize(),
                 minimap = MinimapCore:IsEnabled(),
                 minimapRound = MinimapCore:IsRound(),
+                minimapLocked = MinimapCore:IsLocked(),
+                minimapTerrain = MinimapCore:IsTerrain(),
                 minimapSize = MinimapCore:GetSize(),
                 minimapZoom = MinimapCore:GetZoom(),
                 headEsp = HeadESP:IsEnabled(),
@@ -3195,6 +3295,8 @@ do
                 if config.highAlertArrowSize ~= nil then HighAlertCore:SetArrowSize(config.highAlertArrowSize) end
                 if config.minimap ~= nil then MinimapCore:SetEnabled(config.minimap) end
                 if config.minimapRound ~= nil then MinimapCore:SetRound(config.minimapRound) end
+                if config.minimapLocked ~= nil then MinimapCore:SetLocked(config.minimapLocked) end
+                if config.minimapTerrain ~= nil then MinimapCore:SetTerrain(config.minimapTerrain) end
                 if config.minimapSize ~= nil then MinimapCore:SetSize(config.minimapSize) end
                 if config.minimapZoom ~= nil then MinimapCore:SetZoom(config.minimapZoom) end
                 -- ... etc
