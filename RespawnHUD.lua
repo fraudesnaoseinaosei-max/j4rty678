@@ -48,6 +48,8 @@ if getgenv().ESPHealth == nil then getgenv().ESPHealth = false end
 if getgenv().ESPEnabled == nil then getgenv().ESPEnabled = false end
 if getgenv().ESPNames == nil then getgenv().ESPNames = false end
 if getgenv().ESPTracers == nil then getgenv().ESPTracers = false end
+if getgenv().HighAlertEnabled == nil then getgenv().HighAlertEnabled = false end
+if getgenv().HighAlertTeamCheck == nil then getgenv().HighAlertTeamCheck = true end
 if not getgenv().UnlockMouseKey then getgenv().UnlockMouseKey = Enum.KeyCode.P end
 
 -- ==========================================
@@ -819,7 +821,351 @@ local ESPCore = (function()
     return ESPCore
 end)()
 
--- [5] BOT CORE (AI)
+-- [5] HIGH ALERT CORE (Directional Threat Pulse - Estilo COD Warzone)
+local HighAlertCore = (function()
+    if not Drawing then return {
+        SetEnabled = function() end,
+        IsEnabled = function() return false end,
+        SetTeamCheck = function() end,
+        IsTeamCheck = function() return true end,
+        Destroy = function() end
+    } end
+
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+
+    local HighAlert = {}
+    local isEnabled = false
+    local teamCheckEnabled = true
+
+    -- ============================================
+    -- CONFIG
+    -- ============================================
+    local DIST_CLOSE = 50       -- Vermelho: < 50 studs
+    local DIST_MEDIUM = 100     -- Amarelo: 50-100 studs
+    -- Verde: > 100 studs
+    local LOOK_THRESHOLD = 0.82 -- cos(~35°) - cone de visão do inimigo
+    local BORDER_THICKNESS = 6  -- Espessura da borda pulsante (pixels)
+    local PULSE_SPEED = 4       -- Velocidade do pulso
+    local MAX_ALPHA = 0.85      -- Transparência máxima do pulso
+    local MIN_ALPHA = 0.15      -- Transparência mínima do pulso
+
+    -- Cores por distância
+    local COLOR_CLOSE  = Color3.fromRGB(255, 50, 50)    -- Vermelho
+    local COLOR_MEDIUM = Color3.fromRGB(255, 200, 0)     -- Amarelo
+    local COLOR_FAR    = Color3.fromRGB(50, 255, 100)    -- Verde
+
+    -- ============================================
+    -- DRAWING OBJECTS (4 bordas + 4 cantos)
+    -- ============================================
+    -- Bordas: Top, Bottom, Left, Right
+    -- Cada borda é um retângulo fino na extremidade da tela
+    local borders = {}
+    local borderNames = {"Top", "Bottom", "Left", "Right"}
+    for _, name in ipairs(borderNames) do
+        local rect = Drawing.new("Square")
+        rect.Filled = true
+        rect.Visible = false
+        rect.Transparency = 0
+        rect.Color = COLOR_CLOSE
+        rect.Thickness = 0
+        borders[name] = rect
+    end
+
+    -- Estado por borda: {active, color, distance, alpha}
+    local borderState = {}
+    for _, name in ipairs(borderNames) do
+        borderState[name] = {
+            active = false,
+            color = COLOR_FAR,
+            distance = 9999,
+            alpha = 0
+        }
+    end
+
+    -- ============================================
+    -- HELPER FUNCTIONS
+    -- ============================================
+
+    local function IsAlly(targetPlayer)
+        if not teamCheckEnabled then return false end
+        if not LocalPlayer.Team then return false end
+        if not targetPlayer.Team then return false end
+        return LocalPlayer.Team == targetPlayer.Team
+    end
+
+    local function GetColorByDistance(dist)
+        if dist < DIST_CLOSE then
+            return COLOR_CLOSE
+        elseif dist < DIST_MEDIUM then
+            return COLOR_MEDIUM
+        else
+            return COLOR_FAR
+        end
+    end
+
+    local function HasLineOfSight(fromPos, toPos, ignoreList)
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        rayParams.FilterDescendantsInstances = ignoreList
+        rayParams.IgnoreWater = true
+
+        local direction = (toPos - fromPos)
+        local result = workspace:Raycast(fromPos, direction, rayParams)
+
+        -- Se não acertou nada, tem visão direta
+        if not result then return true end
+
+        -- Se acertou algo, verificar se é parte do character alvo
+        -- (o raycast vai bater no character antes do destino)
+        -- Precisamos verificar se a distância do hit é >= ~distância real
+        local hitDist = (result.Position - fromPos).Magnitude
+        local totalDist = direction.Magnitude
+
+        -- Se o hit está muito perto do destino (dentro de 5 studs), conta como visão
+        if totalDist - hitDist < 5 then return true end
+
+        return false
+    end
+
+    -- Determina qual borda(s) da tela o inimigo está em relação ao player
+    -- Retorna a borda dominante baseado na direção relativa
+    local function GetThreatBorder(myRoot, myCF, enemyPos)
+        -- Vetor do player para o inimigo em espaço local do player
+        local toEnemy = (enemyPos - myRoot.Position)
+        local localDir = myCF:VectorToObjectSpace(toEnemy).Unit
+
+        -- localDir.X: positivo = direita, negativo = esquerda
+        -- localDir.Z: positivo = costas (atrás), negativo = frente
+        -- localDir.Y: cima/baixo (menos relevante)
+
+        local absX = math.abs(localDir.X)
+        local absZ = math.abs(localDir.Z)
+
+        -- Determinar borda(s) ativas
+        local activeBorders = {}
+
+        -- Componente lateral (Left/Right)
+        if absX > 0.3 then
+            if localDir.X > 0 then
+                table.insert(activeBorders, "Right")
+            else
+                table.insert(activeBorders, "Left")
+            end
+        end
+
+        -- Componente frontal/traseiro (Top = frente visual, Bottom = costas)
+        -- No Warzone, Bottom = atrás de você
+        if absZ > 0.3 then
+            if localDir.Z > 0 then
+                table.insert(activeBorders, "Bottom") -- Atrás = borda de baixo
+            else
+                table.insert(activeBorders, "Top")    -- Frente = borda de cima
+            end
+        end
+
+        -- Se nenhuma borda foi selecionada (improvável), usar a dominante
+        if #activeBorders == 0 then
+            if absX > absZ then
+                table.insert(activeBorders, localDir.X > 0 and "Right" or "Left")
+            else
+                table.insert(activeBorders, localDir.Z > 0 and "Bottom" or "Top")
+            end
+        end
+
+        return activeBorders
+    end
+
+    -- ============================================
+    -- MAIN UPDATE LOOP
+    -- ============================================
+    local pulseTime = 0
+    local renderConnection = nil
+
+    local function UpdateHighAlert(dt)
+        if not isEnabled then
+            for _, name in ipairs(borderNames) do
+                borders[name].Visible = false
+                borderState[name].active = false
+                borderState[name].alpha = 0
+            end
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+        local viewportSize = camera.ViewportSize
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local myHumanoid = myChar and myChar:FindFirstChild("Humanoid")
+        if not myRoot or not myHumanoid or myHumanoid.Health <= 0 then
+            for _, name in ipairs(borderNames) do
+                borders[name].Visible = false
+                borderState[name].active = false
+            end
+            return
+        end
+
+        local myCF = myRoot.CFrame
+        local myPos = myRoot.Position
+
+        -- Reset border states
+        for _, name in ipairs(borderNames) do
+            borderState[name].active = false
+            borderState[name].distance = 9999
+        end
+
+        -- Checar todos os jogadores
+        for _, player in pairs(Players:GetPlayers()) do
+            if player == LocalPlayer then continue end
+            if IsAlly(player) then continue end
+
+            local character = player.Character
+            if not character then continue end
+
+            local enemyRoot = character:FindFirstChild("HumanoidRootPart")
+            local enemyHead = character:FindFirstChild("Head")
+            local enemyHumanoid = character:FindFirstChild("Humanoid")
+
+            if not enemyRoot or not enemyHumanoid or enemyHumanoid.Health <= 0 then continue end
+
+            local enemyCF = enemyRoot.CFrame
+            local enemyPos = enemyRoot.Position
+            local distance = (enemyPos - myPos).Magnitude
+
+            -- 1. Verificar se o inimigo está olhando na nossa direção
+            local enemyLookVector = enemyCF.LookVector
+            local enemyToMe = (myPos - enemyPos).Unit
+            local lookDot = enemyLookVector:Dot(enemyToMe)
+
+            -- Se o dot product for alto, o inimigo está olhando para nós
+            if lookDot < LOOK_THRESHOLD then continue end
+
+            -- 2. Verificar linha de visão (Raycast)
+            -- Ignorar character do inimigo e nosso character
+            local ignoreList = {character}
+            if myChar then table.insert(ignoreList, myChar) end
+
+            -- Raycast da cabeça do inimigo até nosso torso
+            local eyePos = enemyHead and (enemyHead.Position + Vector3.new(0, 0.5, 0)) or enemyPos
+            if not HasLineOfSight(eyePos, myPos, ignoreList) then continue end
+
+            -- 3. Determinar bordas ativas
+            local activeBorders = GetThreatBorder(myRoot, myCF, enemyPos)
+            local color = GetColorByDistance(distance)
+
+            for _, borderName in ipairs(activeBorders) do
+                local state = borderState[borderName]
+                state.active = true
+                -- Manter o inimigo mais próximo por borda
+                if distance < state.distance then
+                    state.distance = distance
+                    state.color = color
+                end
+            end
+        end
+
+        -- ============================================
+        -- RENDER BORDERS WITH PULSE
+        -- ============================================
+        pulseTime = pulseTime + dt * PULSE_SPEED
+        local pulseFactor = (math.sin(pulseTime) + 1) / 2 -- 0 a 1 suave
+        local currentAlpha = MIN_ALPHA + (MAX_ALPHA - MIN_ALPHA) * pulseFactor
+
+        for _, name in ipairs(borderNames) do
+            local state = borderState[name]
+            local rect = borders[name]
+
+            if state.active then
+                rect.Visible = true
+                rect.Color = state.color
+                rect.Transparency = currentAlpha
+
+                -- Posicionar retângulo na borda correta
+                if name == "Top" then
+                    rect.Position = Vector2.new(0, 0)
+                    rect.Size = Vector2.new(viewportSize.X, BORDER_THICKNESS)
+                elseif name == "Bottom" then
+                    rect.Position = Vector2.new(0, viewportSize.Y - BORDER_THICKNESS)
+                    rect.Size = Vector2.new(viewportSize.X, BORDER_THICKNESS)
+                elseif name == "Left" then
+                    rect.Position = Vector2.new(0, 0)
+                    rect.Size = Vector2.new(BORDER_THICKNESS, viewportSize.Y)
+                elseif name == "Right" then
+                    rect.Position = Vector2.new(viewportSize.X - BORDER_THICKNESS, 0)
+                    rect.Size = Vector2.new(BORDER_THICKNESS, viewportSize.Y)
+                end
+            else
+                -- Fade out suave
+                if rect.Visible then
+                    state.alpha = state.alpha - dt * 3
+                    if state.alpha <= 0 then
+                        state.alpha = 0
+                        rect.Visible = false
+                    else
+                        rect.Transparency = state.alpha
+                    end
+                end
+            end
+        end
+    end
+
+    -- ============================================
+    -- PUBLIC API
+    -- ============================================
+    function HighAlert:SetEnabled(enabled)
+        isEnabled = enabled
+        if getgenv then getgenv().HighAlertEnabled = enabled end
+        if not enabled then
+            for _, name in ipairs(borderNames) do
+                borders[name].Visible = false
+                borderState[name].active = false
+                borderState[name].alpha = 0
+            end
+        end
+    end
+
+    function HighAlert:IsEnabled()
+        return isEnabled
+    end
+
+    function HighAlert:SetTeamCheck(enabled)
+        teamCheckEnabled = enabled
+        if getgenv then getgenv().HighAlertTeamCheck = enabled end
+    end
+
+    function HighAlert:IsTeamCheck()
+        return teamCheckEnabled
+    end
+
+    function HighAlert:Destroy()
+        if renderConnection then
+            renderConnection:Disconnect()
+            renderConnection = nil
+        end
+        for _, name in ipairs(borderNames) do
+            if borders[name] then
+                borders[name]:Remove()
+            end
+        end
+    end
+
+    -- Init
+    if getgenv then
+        isEnabled = getgenv().HighAlertEnabled or false
+        teamCheckEnabled = (getgenv().HighAlertTeamCheck == nil) and true or getgenv().HighAlertTeamCheck
+    end
+
+    renderConnection = RunService.RenderStepped:Connect(function(dt)
+        UpdateHighAlert(dt)
+    end)
+
+    return HighAlert
+end)()
+
+-- [6] BOT CORE (AI)
 -- [5] BOT CORE (AI)
 local BotCore = {}
 do -- Start BotCore Block
@@ -3339,6 +3685,37 @@ do
         frame.Visible = isESPEnabled
     end
 
+    -- ============================================
+    -- GRUPO: ALERTA DE AMEAÇA (HIGH ALERT)
+    -- ============================================
+    local AlertGroup = Visual:Group("Alerta de Ameaça (High Alert)")
+    local alertDependents = {}
+
+    local alertToggle = AlertGroup:Toggle("High Alert (Bordas)", HighAlertCore:IsEnabled(), function(v)
+        HighAlertCore:SetEnabled(v)
+        if v then
+            task.wait(0.3)
+            for _, frame in pairs(alertDependents) do
+                frame.Visible = true
+            end
+        else
+            for _, frame in pairs(alertDependents) do
+                frame.Visible = false
+            end
+        end
+    end)
+
+    local alertTeamToggle = AlertGroup:Toggle("Ignorar Aliados (Time)", HighAlertCore:IsTeamCheck(), function(v)
+        HighAlertCore:SetTeamCheck(v)
+    end)
+    table.insert(alertDependents, alertTeamToggle.Frame)
+
+    -- Initialize visibility based on default state
+    local isAlertEnabled = HighAlertCore:IsEnabled()
+    for _, frame in pairs(alertDependents) do
+        frame.Visible = isAlertEnabled
+    end
+
     local HeadGroup = Visual:Group("Cabeças (Headshot)")
     local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
         HeadESP:SetEnabled(v)
@@ -3662,6 +4039,8 @@ do
                 espNames = getgenv().ESPNames,
                 espTracers = getgenv().ESPTracers,
                 espHealth = getgenv().ESPHealth,
+                highAlert = HighAlertCore:IsEnabled(),
+                highAlertTeamCheck = HighAlertCore:IsTeamCheck(),
                 headEsp = HeadESP:IsEnabled(),
                 headSize = HeadESP:GetHeadSize(),
                 respawn = RespawnCore:IsEnabled(),
@@ -3687,6 +4066,8 @@ do
                 if config.aimbot ~= nil then AimbotCore:SetEnabled(config.aimbot) end
                 if config.teamCheck ~= nil then getgenv().TeamCheck = config.teamCheck end
                 if config.esp ~= nil then ESPCore:SetEnabled(config.esp) end
+                if config.highAlert ~= nil then HighAlertCore:SetEnabled(config.highAlert) end
+                if config.highAlertTeamCheck ~= nil then HighAlertCore:SetTeamCheck(config.highAlertTeamCheck) end
                 -- ... etc
                 
                 if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
