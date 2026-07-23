@@ -56,6 +56,11 @@ if not getgenv().HighAlertArrowRadius then getgenv().HighAlertArrowRadius = 90 e
 if not getgenv().HighAlertArrowSize then getgenv().HighAlertArrowSize = 22 end
 if not getgenv().UnlockMouseKey then getgenv().UnlockMouseKey = Enum.KeyCode.P end
 
+if getgenv().MinimapEnabled == nil then getgenv().MinimapEnabled = false end
+if not getgenv().MinimapSize then getgenv().MinimapSize = 150 end
+if getgenv().MinimapRound == nil then getgenv().MinimapRound = true end
+if not getgenv().MinimapZoom then getgenv().MinimapZoom = 250 end
+
 -- ==========================================
 -- BUNDLED MODULES (LÓGICA PRESERVADA)
 -- ==========================================
@@ -1345,7 +1350,304 @@ local HighAlertCore = (function()
     return HighAlert
 end)()
 
--- [6] BOT CORE (AI)
+-- [6] MINIMAP CORE (Radar Arrastável)
+local MinimapCore = (function()
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local CoreGui = game:GetService("CoreGui")
+
+    local Minimap = {}
+    local isEnabled = false
+    local isRound = true
+    local mapSize = 150
+    local mapZoom = 250
+
+    local container = nil
+    local mapFrame = nil
+    local mapCorner = nil
+    local centerBlip = nil
+    local blips = {} -- { [Player] = Frame }
+
+    local dragging = false
+    local dragInput = nil
+    local dragStart = nil
+    local startPos = nil
+
+    -- Inicializa a GUI
+    local function initUI()
+        if container then return end
+
+        local targetGui = CoreGui:FindFirstChild("DreeZyVoidware") or CoreGui:FindFirstChild("RobloxGui")
+        if not targetGui then return end
+
+        container = Instance.new("Frame")
+        container.Name = "DreeZyMinimap"
+        container.Size = UDim2.new(0, mapSize, 0, mapSize)
+        container.Position = UDim2.new(1, -mapSize - 20, 0, 20) -- Canto superior direito
+        container.BackgroundTransparency = 1
+        container.Active = true
+        container.Parent = targetGui
+
+        mapFrame = Instance.new("Frame")
+        mapFrame.Size = UDim2.new(1, 0, 1, 0)
+        mapFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        mapFrame.BackgroundTransparency = 0.3
+        mapFrame.BorderSizePixel = 2
+        mapFrame.BorderColor3 = Color3.fromRGB(150, 150, 150)
+        mapFrame.ClipsDescendants = true
+        mapFrame.Parent = container
+
+        mapCorner = Instance.new("UICorner")
+        mapCorner.CornerRadius = UDim.new(1, 0)
+        mapCorner.Parent = mapFrame
+
+        centerBlip = Instance.new("Frame")
+        centerBlip.Size = UDim2.new(0, 6, 0, 6)
+        centerBlip.Position = UDim2.new(0.5, -3, 0.5, -3)
+        centerBlip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        centerBlip.ZIndex = 5
+        centerBlip.Parent = mapFrame
+
+        local centerCorner = Instance.new("UICorner")
+        centerCorner.CornerRadius = UDim.new(1, 0)
+        centerCorner.Parent = centerBlip
+        
+        -- Campo de visão "cone" simulado
+        local dirLine = Instance.new("Frame")
+        dirLine.Size = UDim2.new(0, 2, 0, 15)
+        dirLine.Position = UDim2.new(0.5, -1, 0.5, -15)
+        dirLine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        dirLine.BackgroundTransparency = 0.5
+        dirLine.BorderSizePixel = 0
+        dirLine.ZIndex = 4
+        dirLine.Parent = mapFrame
+
+        -- Drag Logic
+        container.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = container.Position
+                
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+
+        container.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end)
+    end
+
+    local function updateDrag()
+        if dragging and dragInput then
+            local delta = dragInput.Position - dragStart
+            container.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end
+
+    local function getTeamColor(player)
+        if player.TeamColor then return player.TeamColor.Color end
+        if player.Team and player.Team.TeamColor then return player.Team.TeamColor.Color end
+        
+        -- Inimigo genérico se não tiver time (considerando FFA)
+        if player ~= LocalPlayer then
+             if LocalPlayer.Team then
+                 return Color3.fromRGB(255, 50, 50) -- Vermelho se inimigo
+             end
+        end
+        return Color3.fromRGB(255, 50, 50) 
+    end
+
+    local function createBlip(player)
+        if blips[player] then return blips[player] end
+
+        local blip = Instance.new("Frame")
+        blip.Size = UDim2.new(0, 6, 0, 6)
+        blip.BackgroundColor3 = getTeamColor(player)
+        blip.BorderSizePixel = 1
+        blip.BorderColor3 = Color3.fromRGB(0, 0, 0)
+        blip.ZIndex = 3
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(1, 0)
+        corner.Parent = blip
+
+        blip.Parent = mapFrame
+        blips[player] = blip
+        return blip
+    end
+
+    local function removeBlip(player)
+        if blips[player] then
+            blips[player]:Destroy()
+            blips[player] = nil
+        end
+    end
+
+    local function updateMap()
+        if not isEnabled or not mapFrame then return end
+        
+        updateDrag()
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myRoot then
+            for _, blip in pairs(blips) do blip.Visible = false end
+            return
+        end
+
+        local myPos = myRoot.Position
+        local camera = workspace.CurrentCamera
+        local camY = camera.CFrame.Rotation
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player == LocalPlayer then continue end
+
+            local character = player.Character
+            local enemyRoot = character and character:FindFirstChild("HumanoidRootPart")
+            local humanoid = character and character:FindFirstChild("Humanoid")
+
+            if not enemyRoot or not humanoid or humanoid.Health <= 0 then
+                if blips[player] then blips[player].Visible = false end
+                continue
+            end
+
+            local enemyPos = enemyRoot.Position
+            local dist = (Vector3.new(enemyPos.X, 0, enemyPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
+
+            local blip = createBlip(player)
+            blip.BackgroundColor3 = getTeamColor(player)
+
+            if dist > mapZoom then
+                blip.Visible = false
+            else
+                blip.Visible = true
+                
+                -- Transformar posição do mundo para espaço relativo da câmera
+                local offset = enemyPos - myPos
+                -- Queremos projetar no plano XZ baseado na rotação da câmera (Yaw)
+                -- Rotacionar o vetor offset pelo inverso da rotação Y da câmera
+                local camLook = camera.CFrame.LookVector
+                local camLookFlat = Vector3.new(camLook.X, 0, camLook.Z).Unit
+                local camRight = Vector3.new(camLookFlat.Z, 0, -camLookFlat.X) -- Perpendicular
+
+                -- Projeção
+                local relX = offset:Dot(camRight)
+                local relZ = offset:Dot(camLookFlat)
+
+                -- Escalar para o tamanho do mapa (Centro = 0, Borda = mapSize/2)
+                -- Multiplica por -1 no Z pois no Roblox frente é Z negativo, e no mapa queremos cima = Y negativo
+                local mapScale = (mapSize / 2) / mapZoom
+                local uiX = relX * mapScale
+                local uiY = -relZ * mapScale
+
+                -- Posicionar a partir do centro (0.5, 0.5)
+                blip.Position = UDim2.new(0.5, uiX - 3, 0.5, uiY - 3)
+            end
+        end
+        
+        -- Limpar blips de jogadores que saíram
+        for p, blip in pairs(blips) do
+            if not p.Parent then
+                removeBlip(p)
+            end
+        end
+    end
+
+    local renderConnection = nil
+
+    function Minimap:SetEnabled(enabled)
+        isEnabled = enabled
+        if getgenv then getgenv().MinimapEnabled = enabled end
+        
+        if enabled then
+            initUI()
+            if container then container.Visible = true end
+            if not renderConnection then
+                renderConnection = RunService.RenderStepped:Connect(updateMap)
+            end
+        else
+            if container then container.Visible = false end
+            if renderConnection then
+                renderConnection:Disconnect()
+                renderConnection = nil
+            end
+        end
+    end
+
+    function Minimap:IsEnabled()
+        return isEnabled
+    end
+
+    function Minimap:SetSize(size)
+        mapSize = size
+        if getgenv then getgenv().MinimapSize = size end
+        if container then
+            container.Size = UDim2.new(0, size, 0, size)
+        end
+    end
+
+    function Minimap:GetSize()
+        return mapSize
+    end
+
+    function Minimap:SetRound(round)
+        isRound = round
+        if getgenv then getgenv().MinimapRound = round end
+        if mapCorner then
+            mapCorner.CornerRadius = round and UDim.new(1, 0) or UDim.new(0, 0)
+        end
+    end
+
+    function Minimap:IsRound()
+        return isRound
+    end
+    
+    function Minimap:SetZoom(zoom)
+        mapZoom = zoom
+        if getgenv then getgenv().MinimapZoom = zoom end
+    end
+    
+    function Minimap:GetZoom()
+        return mapZoom
+    end
+
+    function Minimap:Destroy()
+        if renderConnection then
+            renderConnection:Disconnect()
+        end
+        if container then
+            container:Destroy()
+        end
+    end
+
+    Players.PlayerRemoving:Connect(removeBlip)
+
+    -- Init
+    if getgenv then
+        mapSize = getgenv().MinimapSize or 150
+        isRound = (getgenv().MinimapRound == nil) and true or getgenv().MinimapRound
+        mapZoom = getgenv().MinimapZoom or 250
+        
+        if getgenv().MinimapEnabled then
+            Minimap:SetEnabled(true)
+        end
+    end
+
+    return Minimap
+end)()
+
+-- [7] BOT CORE (AI)
 -- [5] BOT CORE (AI)
 local BotCore = {}
 do -- Start BotCore Block
@@ -3923,6 +4225,43 @@ do
     HeadGroup:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
         HeadESP:SetHeadSize(v)
     end)
+    
+    -- ============================================
+    -- GRUPO: MINIMAPA (RADAR)
+    -- ============================================
+    local MinimapGroup = Visual:Group("Minimapa (Radar)")
+    local minimapDependents = {}
+    
+    local minimapToggle = MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
+        MinimapCore:SetEnabled(v)
+        if v then
+            task.wait(0.3)
+            for _, frame in pairs(minimapDependents) do frame.Visible = true end
+        else
+            for _, frame in pairs(minimapDependents) do frame.Visible = false end
+        end
+    end)
+    
+    local minimapRoundToggle = MinimapGroup:Toggle("Formato Redondo", MinimapCore:IsRound(), function(v)
+        MinimapCore:SetRound(v)
+    end)
+    table.insert(minimapDependents, minimapRoundToggle.Frame)
+    
+    local minimapSizeSlider = MinimapGroup:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
+        MinimapCore:SetSize(v)
+    end)
+    table.insert(minimapDependents, minimapSizeSlider.Frame)
+    
+    local minimapZoomSlider = MinimapGroup:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
+        MinimapCore:SetZoom(v)
+    end)
+    table.insert(minimapDependents, minimapZoomSlider.Frame)
+    
+    local isMinimapEnabled = MinimapCore:IsEnabled()
+    for _, frame in pairs(minimapDependents) do
+        frame.Visible = isMinimapEnabled
+    end
+    
 end -- End Visual Block
 
 -- >>> TAB: LOCAL PLAYER
@@ -4245,6 +4584,10 @@ do
                 highAlertArrow = HighAlertCore:IsArrowEnabled(),
                 highAlertArrowRadius = HighAlertCore:GetArrowRadius(),
                 highAlertArrowSize = HighAlertCore:GetArrowSize(),
+                minimap = MinimapCore:IsEnabled(),
+                minimapRound = MinimapCore:IsRound(),
+                minimapSize = MinimapCore:GetSize(),
+                minimapZoom = MinimapCore:GetZoom(),
                 headEsp = HeadESP:IsEnabled(),
                 headSize = HeadESP:GetHeadSize(),
                 respawn = RespawnCore:IsEnabled(),
@@ -4276,6 +4619,10 @@ do
                 if config.highAlertArrow ~= nil then HighAlertCore:SetArrowEnabled(config.highAlertArrow) end
                 if config.highAlertArrowRadius ~= nil then HighAlertCore:SetArrowRadius(config.highAlertArrowRadius) end
                 if config.highAlertArrowSize ~= nil then HighAlertCore:SetArrowSize(config.highAlertArrowSize) end
+                if config.minimap ~= nil then MinimapCore:SetEnabled(config.minimap) end
+                if config.minimapRound ~= nil then MinimapCore:SetRound(config.minimapRound) end
+                if config.minimapSize ~= nil then MinimapCore:SetSize(config.minimapSize) end
+                if config.minimapZoom ~= nil then MinimapCore:SetZoom(config.minimapZoom) end
                 -- ... etc
                 
                 if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
