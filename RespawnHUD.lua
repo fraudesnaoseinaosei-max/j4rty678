@@ -50,6 +50,10 @@ if getgenv().ESPNames == nil then getgenv().ESPNames = false end
 if getgenv().ESPTracers == nil then getgenv().ESPTracers = false end
 if getgenv().HighAlertEnabled == nil then getgenv().HighAlertEnabled = false end
 if getgenv().HighAlertTeamCheck == nil then getgenv().HighAlertTeamCheck = true end
+if not getgenv().HighAlertThickness then getgenv().HighAlertThickness = 18 end
+if getgenv().HighAlertArrowEnabled == nil then getgenv().HighAlertArrowEnabled = false end
+if not getgenv().HighAlertArrowRadius then getgenv().HighAlertArrowRadius = 90 end
+if not getgenv().HighAlertArrowSize then getgenv().HighAlertArrowSize = 22 end
 if not getgenv().UnlockMouseKey then getgenv().UnlockMouseKey = Enum.KeyCode.P end
 
 -- ==========================================
@@ -846,7 +850,7 @@ local HighAlertCore = (function()
     local DIST_MEDIUM = 100     -- Amarelo: 50-100 studs
     -- Verde: > 100 studs
     local LOOK_THRESHOLD = 0.82 -- cos(~35°) - cone de visão do inimigo
-    local BORDER_THICKNESS = 6  -- Espessura da borda pulsante (pixels)
+    local BORDER_THICKNESS = getgenv().HighAlertThickness or 18  -- Espessura da borda pulsante (pixels)
     local PULSE_SPEED = 4       -- Velocidade do pulso
     local MAX_ALPHA = 0.85      -- Transparência máxima do pulso
     local MIN_ALPHA = 0.15      -- Transparência mínima do pulso
@@ -883,6 +887,39 @@ local HighAlertCore = (function()
             alpha = 0
         }
     end
+
+    -- ============================================
+    -- ARROW/CHEVRON SYSTEM (Seta Direcional Centro)
+    -- ============================================
+    local arrowEnabled = getgenv().HighAlertArrowEnabled or false
+    local ARROW_RADIUS = getgenv().HighAlertArrowRadius or 90   -- Distância do centro da tela
+    local ARROW_SIZE = getgenv().HighAlertArrowSize or 22       -- Tamanho do chevron
+    local MAX_ARROWS = 10 -- Pool máximo de setas simultâneas
+
+    -- Cada seta é feita de 2 linhas (chevron ">")
+    local arrowPool = {}
+    for i = 1, MAX_ARROWS do
+        local line1 = Drawing.new("Line")
+        line1.Visible = false
+        line1.Thickness = 3
+        line1.Transparency = 1
+        line1.Color = COLOR_CLOSE
+
+        local line2 = Drawing.new("Line")
+        line2.Visible = false
+        line2.Thickness = 3
+        line2.Transparency = 1
+        line2.Color = COLOR_CLOSE
+
+        arrowPool[i] = {
+            line1 = line1,
+            line2 = line2,
+            active = false
+        }
+    end
+
+    -- Lista de ameaças detectadas no frame (para setas)
+    local detectedThreats = {}
 
     -- ============================================
     -- HELPER FUNCTIONS
@@ -984,11 +1021,16 @@ local HighAlertCore = (function()
     local renderConnection = nil
 
     local function UpdateHighAlert(dt)
-        if not isEnabled then
+        if not isEnabled and not arrowEnabled then
             for _, name in ipairs(borderNames) do
                 borders[name].Visible = false
                 borderState[name].active = false
                 borderState[name].alpha = 0
+            end
+            for _, arrow in ipairs(arrowPool) do
+                arrow.line1.Visible = false
+                arrow.line2.Visible = false
+                arrow.active = false
             end
             return
         end
@@ -1005,6 +1047,11 @@ local HighAlertCore = (function()
                 borders[name].Visible = false
                 borderState[name].active = false
             end
+            for _, arrow in ipairs(arrowPool) do
+                arrow.line1.Visible = false
+                arrow.line2.Visible = false
+                arrow.active = false
+            end
             return
         end
 
@@ -1016,6 +1063,9 @@ local HighAlertCore = (function()
             borderState[name].active = false
             borderState[name].distance = 9999
         end
+
+        -- Reset threat list para setas
+        detectedThreats = {}
 
         -- Checar todos os jogadores
         for _, player in pairs(Players:GetPlayers()) do
@@ -1052,18 +1102,34 @@ local HighAlertCore = (function()
             local eyePos = enemyHead and (enemyHead.Position + Vector3.new(0, 0.5, 0)) or enemyPos
             if not HasLineOfSight(eyePos, myPos, ignoreList) then continue end
 
-            -- 3. Determinar bordas ativas
-            local activeBorders = GetThreatBorder(myRoot, myCF, enemyPos)
-            local color = GetColorByDistance(distance)
+            -- 3. Determinar bordas ativas (modo borda)
+            if isEnabled then
+                local activeBorders = GetThreatBorder(myRoot, myCF, enemyPos)
+                local color = GetColorByDistance(distance)
 
-            for _, borderName in ipairs(activeBorders) do
-                local state = borderState[borderName]
-                state.active = true
-                -- Manter o inimigo mais próximo por borda
-                if distance < state.distance then
-                    state.distance = distance
-                    state.color = color
+                for _, borderName in ipairs(activeBorders) do
+                    local state = borderState[borderName]
+                    state.active = true
+                    -- Manter o inimigo mais próximo por borda
+                    if distance < state.distance then
+                        state.distance = distance
+                        state.color = color
+                    end
                 end
+            end
+
+            -- 4. Registrar ameaça para seta direcional (modo arrow)
+            if arrowEnabled and #detectedThreats < MAX_ARROWS then
+                local toEnemy = (enemyPos - myPos)
+                local localDir = myCF:VectorToObjectSpace(toEnemy).Unit
+                -- Calcular ângulo 2D no plano XZ local (ao redor do player)
+                -- atan2(X, Z) onde Z+ = atrás, X+ = direita
+                local angle = math.atan2(localDir.X, localDir.Z)
+                table.insert(detectedThreats, {
+                    angle = angle,
+                    distance = distance,
+                    color = GetColorByDistance(distance)
+                })
             end
         end
 
@@ -1110,6 +1176,73 @@ local HighAlertCore = (function()
                 end
             end
         end
+
+        -- ============================================
+        -- RENDER ARROWS (Setas Direcionais no Centro)
+        -- ============================================
+        local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+
+        for i, arrow in ipairs(arrowPool) do
+            local threat = detectedThreats[i]
+            if threat and arrowEnabled then
+                arrow.active = true
+                -- Ângulo: 0 = atrás (baixo da tela), PI = frente (cima)
+                -- Converter para ângulo de tela: 0 = cima, rotaciona horário
+                -- Na tela: Y- = cima, Y+ = baixo, X+ = direita
+                -- angle do atan2: 0 = atrás(Z+), PI/2 = direita(X+), PI = frente(Z-), -PI/2 = esquerda(X-)
+                -- Para tela: atrás = baixo, frente = cima
+                local screenAngle = threat.angle -- Já está correto: 0=baixo, PI=cima
+
+                -- Posição do centro do chevron no círculo ao redor do centro da tela
+                local cx = screenCenter.X + math.sin(screenAngle) * ARROW_RADIUS
+                local cy = screenCenter.Y + math.cos(screenAngle) * ARROW_RADIUS
+
+                -- Desenhar chevron ">": duas linhas formando um V apontando para fora
+                -- O chevron aponta na direção do inimigo (para fora do centro)
+                local halfSize = ARROW_SIZE / 2
+                local chevronAngle = math.rad(35) -- Abertura do chevron
+
+                -- Direção para fora (do centro para o ponto)
+                local outDirX = math.sin(screenAngle)
+                local outDirY = math.cos(screenAngle)
+
+                -- Ponta do chevron (mais longe do centro)
+                local tipX = cx + outDirX * halfSize * 0.5
+                local tipY = cy + outDirY * halfSize * 0.5
+
+                -- Perpendicular para os braços do chevron
+                local perpX = -outDirY
+                local perpY = outDirX
+
+                -- Ponto traseiro do chevron (mais perto do centro)
+                local backX = cx - outDirX * halfSize * 0.5
+                local backY = cy - outDirY * halfSize * 0.5
+
+                -- Braço 1: da ponta até canto esquerdo traseiro
+                local arm1EndX = backX + perpX * halfSize * 0.6
+                local arm1EndY = backY + perpY * halfSize * 0.6
+
+                -- Braço 2: da ponta até canto direito traseiro
+                local arm2EndX = backX - perpX * halfSize * 0.6
+                local arm2EndY = backY - perpY * halfSize * 0.6
+
+                arrow.line1.From = Vector2.new(tipX, tipY)
+                arrow.line1.To = Vector2.new(arm1EndX, arm1EndY)
+                arrow.line1.Color = threat.color
+                arrow.line1.Transparency = currentAlpha
+                arrow.line1.Visible = true
+
+                arrow.line2.From = Vector2.new(tipX, tipY)
+                arrow.line2.To = Vector2.new(arm2EndX, arm2EndY)
+                arrow.line2.Color = threat.color
+                arrow.line2.Transparency = currentAlpha
+                arrow.line2.Visible = true
+            else
+                arrow.line1.Visible = false
+                arrow.line2.Visible = false
+                arrow.active = false
+            end
+        end
     end
 
     -- ============================================
@@ -1131,6 +1264,40 @@ local HighAlertCore = (function()
         return isEnabled
     end
 
+    function HighAlert:SetArrowEnabled(enabled)
+        arrowEnabled = enabled
+        if getgenv then getgenv().HighAlertArrowEnabled = enabled end
+        if not enabled then
+            for _, arrow in ipairs(arrowPool) do
+                arrow.line1.Visible = false
+                arrow.line2.Visible = false
+                arrow.active = false
+            end
+        end
+    end
+
+    function HighAlert:IsArrowEnabled()
+        return arrowEnabled
+    end
+
+    function HighAlert:SetArrowRadius(value)
+        ARROW_RADIUS = math.clamp(value, 30, 300)
+        if getgenv then getgenv().HighAlertArrowRadius = ARROW_RADIUS end
+    end
+
+    function HighAlert:GetArrowRadius()
+        return ARROW_RADIUS
+    end
+
+    function HighAlert:SetArrowSize(value)
+        ARROW_SIZE = math.clamp(value, 8, 50)
+        if getgenv then getgenv().HighAlertArrowSize = ARROW_SIZE end
+    end
+
+    function HighAlert:GetArrowSize()
+        return ARROW_SIZE
+    end
+
     function HighAlert:SetTeamCheck(enabled)
         teamCheckEnabled = enabled
         if getgenv then getgenv().HighAlertTeamCheck = enabled end
@@ -1138,6 +1305,15 @@ local HighAlertCore = (function()
 
     function HighAlert:IsTeamCheck()
         return teamCheckEnabled
+    end
+
+    function HighAlert:SetBorderThickness(value)
+        BORDER_THICKNESS = math.clamp(value, 3, 50)
+        if getgenv then getgenv().HighAlertThickness = BORDER_THICKNESS end
+    end
+
+    function HighAlert:GetBorderThickness()
+        return BORDER_THICKNESS
     end
 
     function HighAlert:Destroy()
@@ -1149,6 +1325,10 @@ local HighAlertCore = (function()
             if borders[name] then
                 borders[name]:Remove()
             end
+        end
+        for _, arrow in ipairs(arrowPool) do
+            if arrow.line1 then arrow.line1:Remove() end
+            if arrow.line2 then arrow.line2:Remove() end
         end
     end
 
@@ -3710,6 +3890,26 @@ do
     end)
     table.insert(alertDependents, alertTeamToggle.Frame)
 
+    local alertThicknessSlider = AlertGroup:Slider("Tamanho da Borda", 3, 50, HighAlertCore:GetBorderThickness(), function(v)
+        HighAlertCore:SetBorderThickness(v)
+    end)
+    table.insert(alertDependents, alertThicknessSlider.Frame)
+
+    local alertArrowToggle = AlertGroup:Toggle("Seta Direcional (Centro)", HighAlertCore:IsArrowEnabled(), function(v)
+        HighAlertCore:SetArrowEnabled(v)
+    end)
+    table.insert(alertDependents, alertArrowToggle.Frame)
+
+    local alertArrowRadiusSlider = AlertGroup:Slider("Distância da Seta", 30, 300, HighAlertCore:GetArrowRadius(), function(v)
+        HighAlertCore:SetArrowRadius(v)
+    end)
+    table.insert(alertDependents, alertArrowRadiusSlider.Frame)
+
+    local alertArrowSizeSlider = AlertGroup:Slider("Tamanho da Seta", 8, 50, HighAlertCore:GetArrowSize(), function(v)
+        HighAlertCore:SetArrowSize(v)
+    end)
+    table.insert(alertDependents, alertArrowSizeSlider.Frame)
+
     -- Initialize visibility based on default state
     local isAlertEnabled = HighAlertCore:IsEnabled()
     for _, frame in pairs(alertDependents) do
@@ -4041,6 +4241,10 @@ do
                 espHealth = getgenv().ESPHealth,
                 highAlert = HighAlertCore:IsEnabled(),
                 highAlertTeamCheck = HighAlertCore:IsTeamCheck(),
+                highAlertThickness = HighAlertCore:GetBorderThickness(),
+                highAlertArrow = HighAlertCore:IsArrowEnabled(),
+                highAlertArrowRadius = HighAlertCore:GetArrowRadius(),
+                highAlertArrowSize = HighAlertCore:GetArrowSize(),
                 headEsp = HeadESP:IsEnabled(),
                 headSize = HeadESP:GetHeadSize(),
                 respawn = RespawnCore:IsEnabled(),
@@ -4068,6 +4272,10 @@ do
                 if config.esp ~= nil then ESPCore:SetEnabled(config.esp) end
                 if config.highAlert ~= nil then HighAlertCore:SetEnabled(config.highAlert) end
                 if config.highAlertTeamCheck ~= nil then HighAlertCore:SetTeamCheck(config.highAlertTeamCheck) end
+                if config.highAlertThickness ~= nil then HighAlertCore:SetBorderThickness(config.highAlertThickness) end
+                if config.highAlertArrow ~= nil then HighAlertCore:SetArrowEnabled(config.highAlertArrow) end
+                if config.highAlertArrowRadius ~= nil then HighAlertCore:SetArrowRadius(config.highAlertArrowRadius) end
+                if config.highAlertArrowSize ~= nil then HighAlertCore:SetArrowSize(config.highAlertArrowSize) end
                 -- ... etc
                 
                 if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
