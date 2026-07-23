@@ -1382,10 +1382,19 @@ local MinimapCore = (function()
         terrainParts = {}
         if not isTerrainEnabled then return end
         
+        local count = 0
+        local added = 0
+        local maxTerrain = 350 -- Limite rígido para evitar queda de FPS no RenderStepped
+        
         for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("BasePart") and v.Anchored and v.Transparency < 1 then
-                if (v.Size.X > 5 or v.Size.Z > 5) and (v.Size.X < 400 and v.Size.Z < 400) then
-                    -- Ignorar se for personagem
+            count = count + 1
+            if count % 200 == 0 then task.wait() end -- Evitar congelamento (lag spike) ao carregar
+            
+            if added >= maxTerrain then break end
+            
+            if v:IsA("BasePart") and v.Anchored and v.Transparency < 0.8 then
+                -- Ignorar muito grandes e muito pequenos. Exigir um pouco de altura (Y > 2) para ignorar chão/decals.
+                if (v.Size.X >= 10 or v.Size.Z >= 10) and v.Size.Y >= 2 and (v.Size.X < 350 and v.Size.Z < 350) then
                     if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory")) then continue end
                     
                     local f = Instance.new("Frame")
@@ -1396,6 +1405,7 @@ local MinimapCore = (function()
                     f.ZIndex = 1
                     f.Parent = mapFrame
                     table.insert(terrainParts, {part = v, frame = f})
+                    added = added + 1
                 end
             end
         end
@@ -1553,6 +1563,8 @@ local MinimapCore = (function()
         -- Atualizar Terreno
         if isTerrainEnabled then
             local camYaw = math.atan2(-camLookFlat.X, -camLookFlat.Z)
+            local maxDistSq = (mapZoom * 1.5) * (mapZoom * 1.5) -- Otimização: calcular distância ao quadrado
+            
             for _, tData in pairs(terrainParts) do
                 local part = tData.part
                 local frame = tData.frame
@@ -1562,9 +1574,9 @@ local MinimapCore = (function()
                 end
                 
                 local offset = part.Position - myPos
-                local dist = Vector3.new(offset.X, 0, offset.Z).Magnitude
+                local distSq = offset.X^2 + offset.Z^2
                 
-                if dist > mapZoom * 1.5 then
+                if distSq > maxDistSq then
                     frame.Visible = false
                 else
                     frame.Visible = true
