@@ -2924,7 +2924,7 @@ do
     local alertThicknessSlider = AlertGroup:Slider("Tamanho da Borda", 3, 50, HighAlertCore:GetBorderThickness(), function(v)
         HighAlertCore:SetBorderThickness(v)
     end)
-    table.insert(alertDependents, alertThicknessSlider.Frame)
+    table.insert(alertDependents, alertThicknessSlider)
 
     local alertArrowToggle = AlertGroup:Toggle("Seta Direcional (Centro)", HighAlertCore:IsArrowEnabled(), function(v)
         HighAlertCore:SetArrowEnabled(v)
@@ -2934,12 +2934,12 @@ do
     local alertArrowRadiusSlider = AlertGroup:Slider("Distância da Seta", 30, 300, HighAlertCore:GetArrowRadius(), function(v)
         HighAlertCore:SetArrowRadius(v)
     end)
-    table.insert(alertDependents, alertArrowRadiusSlider.Frame)
+    table.insert(alertDependents, alertArrowRadiusSlider)
 
     local alertArrowSizeSlider = AlertGroup:Slider("Tamanho da Seta", 8, 50, HighAlertCore:GetArrowSize(), function(v)
         HighAlertCore:SetArrowSize(v)
     end)
-    table.insert(alertDependents, alertArrowSizeSlider.Frame)
+    table.insert(alertDependents, alertArrowSizeSlider)
 
     -- Initialize visibility based on default state
     local isAlertEnabled = HighAlertCore:IsEnabled()
@@ -2979,12 +2979,12 @@ do
     local minimapSizeSlider = MinimapGroup:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
         MinimapCore:SetSize(v)
     end)
-    table.insert(minimapDependents, minimapSizeSlider.Frame)
+    table.insert(minimapDependents, minimapSizeSlider)
     
     local minimapZoomSlider = MinimapGroup:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
         MinimapCore:SetZoom(v)
     end)
-    table.insert(minimapDependents, minimapZoomSlider.Frame)
+    table.insert(minimapDependents, minimapZoomSlider)
     
     local isMinimapEnabled = MinimapCore:IsEnabled()
     for _, frame in pairs(minimapDependents) do
