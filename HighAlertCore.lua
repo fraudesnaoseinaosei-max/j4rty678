@@ -1,8 +1,9 @@
 -- HighAlertCore.lua
--- Sistema de Alerta Direcional nas Bordas (Estilo COD Warzone "High Alert" Perk)
+-- Sistema de Alerta Direcional nas Bordas + Seta Centro (Estilo COD Warzone "High Alert" Perk)
 -- Pulsa bordas da tela quando um inimigo está olhando para você com linha de visão
+-- Seta direcional no centro da tela que aponta para o inimigo
 -- Cor por distância: Verde (longe) > Amarelo (médio) > Vermelho (perto)
--- Direção real: mostra em qual borda da tela o inimigo está
+-- Direção real: mostra em qual borda/seta da tela o inimigo está
 -- Compatível com Velocity, Synapse, Script-Ware, Krnl, etc.
 
 assert(Drawing, 'Drawing API required')
@@ -22,7 +23,7 @@ local DIST_CLOSE = 50       -- Vermelho: < 50 studs
 local DIST_MEDIUM = 100     -- Amarelo: 50-100 studs
 -- Verde: > 100 studs
 local LOOK_THRESHOLD = 0.82 -- cos(~35°) - cone de visão do inimigo
-local BORDER_THICKNESS = 6  -- Espessura da borda pulsante (pixels)
+local BORDER_THICKNESS = 18 -- Espessura da borda pulsante (pixels) - Ajustável
 local PULSE_SPEED = 4       -- Velocidade do pulso
 local MAX_ALPHA = 0.85      -- Transparência máxima do pulso
 local MIN_ALPHA = 0.15      -- Transparência mínima do pulso
@@ -59,6 +60,37 @@ for _, name in ipairs(borderNames) do
 end
 
 -- ============================================
+-- ARROW/CHEVRON SYSTEM (Seta Direcional Centro)
+-- ============================================
+local arrowEnabled = false
+local ARROW_RADIUS = 90   -- Distância do centro da tela
+local ARROW_SIZE = 22      -- Tamanho do chevron
+local MAX_ARROWS = 10
+
+local arrowPool = {}
+for i = 1, MAX_ARROWS do
+    local line1 = Drawing.new("Line")
+    line1.Visible = false
+    line1.Thickness = 3
+    line1.Transparency = 1
+    line1.Color = COLOR_CLOSE
+
+    local line2 = Drawing.new("Line")
+    line2.Visible = false
+    line2.Thickness = 3
+    line2.Transparency = 1
+    line2.Color = COLOR_CLOSE
+
+    arrowPool[i] = {
+        line1 = line1,
+        line2 = line2,
+        active = false
+    }
+end
+
+local detectedThreats = {}
+
+-- ============================================
 -- HELPER FUNCTIONS
 -- ============================================
 
@@ -88,33 +120,25 @@ local function HasLineOfSight(fromPos, toPos, ignoreList)
     local direction = (toPos - fromPos)
     local result = workspace:Raycast(fromPos, direction, rayParams)
 
-    -- Se não acertou nada, tem visão direta
     if not result then return true end
 
-    -- Verificar se o hit está próximo o suficiente do destino
     local hitDist = (result.Position - fromPos).Magnitude
     local totalDist = direction.Magnitude
 
-    -- Se o hit está muito perto do destino (dentro de 5 studs), conta como visão
     if totalDist - hitDist < 5 then return true end
 
     return false
 end
 
--- Determina qual borda(s) da tela o inimigo está em relação ao player
 local function GetThreatBorder(myRoot, myCF, enemyPos)
     local toEnemy = (enemyPos - myRoot.Position)
     local localDir = myCF:VectorToObjectSpace(toEnemy).Unit
-
-    -- localDir.X: positivo = direita, negativo = esquerda
-    -- localDir.Z: positivo = costas (atrás), negativo = frente
 
     local absX = math.abs(localDir.X)
     local absZ = math.abs(localDir.Z)
 
     local activeBorders = {}
 
-    -- Componente lateral (Left/Right)
     if absX > 0.3 then
         if localDir.X > 0 then
             table.insert(activeBorders, "Right")
@@ -123,16 +147,14 @@ local function GetThreatBorder(myRoot, myCF, enemyPos)
         end
     end
 
-    -- Componente frontal/traseiro
     if absZ > 0.3 then
         if localDir.Z > 0 then
-            table.insert(activeBorders, "Bottom") -- Atrás = borda de baixo
+            table.insert(activeBorders, "Bottom")
         else
-            table.insert(activeBorders, "Top")    -- Frente = borda de cima
+            table.insert(activeBorders, "Top")
         end
     end
 
-    -- Fallback
     if #activeBorders == 0 then
         if absX > absZ then
             table.insert(activeBorders, localDir.X > 0 and "Right" or "Left")
@@ -150,11 +172,16 @@ end
 local pulseTime = 0
 
 local function UpdateHighAlert(dt)
-    if not isEnabled then
+    if not isEnabled and not arrowEnabled then
         for _, name in ipairs(borderNames) do
             borders[name].Visible = false
             borderState[name].active = false
             borderState[name].alpha = 0
+        end
+        for _, arrow in ipairs(arrowPool) do
+            arrow.line1.Visible = false
+            arrow.line2.Visible = false
+            arrow.active = false
         end
         return
     end
@@ -171,17 +198,23 @@ local function UpdateHighAlert(dt)
             borders[name].Visible = false
             borderState[name].active = false
         end
+        for _, arrow in ipairs(arrowPool) do
+            arrow.line1.Visible = false
+            arrow.line2.Visible = false
+            arrow.active = false
+        end
         return
     end
 
     local myCF = myRoot.CFrame
     local myPos = myRoot.Position
 
-    -- Reset border states
+    -- Reset
     for _, name in ipairs(borderNames) do
         borderState[name].active = false
         borderState[name].distance = 9999
     end
+    detectedThreats = {}
 
     -- Checar todos os jogadores
     for _, player in pairs(Players:GetPlayers()) do
@@ -201,31 +234,42 @@ local function UpdateHighAlert(dt)
         local enemyPos = enemyRoot.Position
         local distance = (enemyPos - myPos).Magnitude
 
-        -- 1. Verificar se o inimigo está olhando na nossa direção
         local enemyLookVector = enemyCF.LookVector
         local enemyToMe = (myPos - enemyPos).Unit
         local lookDot = enemyLookVector:Dot(enemyToMe)
 
         if lookDot < LOOK_THRESHOLD then continue end
 
-        -- 2. Verificar linha de visão (Raycast)
         local ignoreList = {character}
         if myChar then table.insert(ignoreList, myChar) end
 
         local eyePos = enemyHead and (enemyHead.Position + Vector3.new(0, 0.5, 0)) or enemyPos
         if not HasLineOfSight(eyePos, myPos, ignoreList) then continue end
 
-        -- 3. Determinar bordas ativas
-        local activeBorders = GetThreatBorder(myRoot, myCF, enemyPos)
-        local color = GetColorByDistance(distance)
-
-        for _, borderName in ipairs(activeBorders) do
-            local state = borderState[borderName]
-            state.active = true
-            if distance < state.distance then
-                state.distance = distance
-                state.color = color
+        -- Bordas
+        if isEnabled then
+            local activeBorders = GetThreatBorder(myRoot, myCF, enemyPos)
+            local color = GetColorByDistance(distance)
+            for _, borderName in ipairs(activeBorders) do
+                local state = borderState[borderName]
+                state.active = true
+                if distance < state.distance then
+                    state.distance = distance
+                    state.color = color
+                end
             end
+        end
+
+        -- Setas
+        if arrowEnabled and #detectedThreats < MAX_ARROWS then
+            local toEnemy = (enemyPos - myPos)
+            local localDir = myCF:VectorToObjectSpace(toEnemy).Unit
+            local angle = math.atan2(localDir.X, localDir.Z)
+            table.insert(detectedThreats, {
+                angle = angle,
+                distance = distance,
+                color = GetColorByDistance(distance)
+            })
         end
     end
 
@@ -259,7 +303,6 @@ local function UpdateHighAlert(dt)
                 rect.Size = Vector2.new(BORDER_THICKNESS, viewportSize.Y)
             end
         else
-            -- Fade out suave
             if rect.Visible then
                 state.alpha = state.alpha - dt * 3
                 if state.alpha <= 0 then
@@ -269,6 +312,58 @@ local function UpdateHighAlert(dt)
                     rect.Transparency = state.alpha
                 end
             end
+        end
+    end
+
+    -- ============================================
+    -- RENDER ARROWS (Setas Direcionais no Centro)
+    -- ============================================
+    local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+
+    for i, arrow in ipairs(arrowPool) do
+        local threat = detectedThreats[i]
+        if threat and arrowEnabled then
+            arrow.active = true
+            local screenAngle = threat.angle
+
+            local cx = screenCenter.X + math.sin(screenAngle) * ARROW_RADIUS
+            local cy = screenCenter.Y + math.cos(screenAngle) * ARROW_RADIUS
+
+            local halfSize = ARROW_SIZE / 2
+
+            local outDirX = math.sin(screenAngle)
+            local outDirY = math.cos(screenAngle)
+
+            local tipX = cx + outDirX * halfSize * 0.5
+            local tipY = cy + outDirY * halfSize * 0.5
+
+            local perpX = -outDirY
+            local perpY = outDirX
+
+            local backX = cx - outDirX * halfSize * 0.5
+            local backY = cy - outDirY * halfSize * 0.5
+
+            local arm1EndX = backX + perpX * halfSize * 0.6
+            local arm1EndY = backY + perpY * halfSize * 0.6
+
+            local arm2EndX = backX - perpX * halfSize * 0.6
+            local arm2EndY = backY - perpY * halfSize * 0.6
+
+            arrow.line1.From = Vector2.new(tipX, tipY)
+            arrow.line1.To = Vector2.new(arm1EndX, arm1EndY)
+            arrow.line1.Color = threat.color
+            arrow.line1.Transparency = currentAlpha
+            arrow.line1.Visible = true
+
+            arrow.line2.From = Vector2.new(tipX, tipY)
+            arrow.line2.To = Vector2.new(arm2EndX, arm2EndY)
+            arrow.line2.Color = threat.color
+            arrow.line2.Transparency = currentAlpha
+            arrow.line2.Visible = true
+        else
+            arrow.line1.Visible = false
+            arrow.line2.Visible = false
+            arrow.active = false
         end
     end
 end
@@ -292,6 +387,40 @@ function HighAlertCore:IsEnabled()
     return isEnabled
 end
 
+function HighAlertCore:SetArrowEnabled(enabled)
+    arrowEnabled = enabled
+    if getgenv then getgenv().HighAlertArrowEnabled = enabled end
+    if not enabled then
+        for _, arrow in ipairs(arrowPool) do
+            arrow.line1.Visible = false
+            arrow.line2.Visible = false
+            arrow.active = false
+        end
+    end
+end
+
+function HighAlertCore:IsArrowEnabled()
+    return arrowEnabled
+end
+
+function HighAlertCore:SetArrowRadius(value)
+    ARROW_RADIUS = math.clamp(value, 30, 300)
+    if getgenv then getgenv().HighAlertArrowRadius = ARROW_RADIUS end
+end
+
+function HighAlertCore:GetArrowRadius()
+    return ARROW_RADIUS
+end
+
+function HighAlertCore:SetArrowSize(value)
+    ARROW_SIZE = math.clamp(value, 8, 50)
+    if getgenv then getgenv().HighAlertArrowSize = ARROW_SIZE end
+end
+
+function HighAlertCore:GetArrowSize()
+    return ARROW_SIZE
+end
+
 function HighAlertCore:SetTeamCheck(enabled)
     teamCheckEnabled = enabled
     if getgenv then getgenv().HighAlertTeamCheck = enabled end
@@ -301,11 +430,24 @@ function HighAlertCore:IsTeamCheck()
     return teamCheckEnabled
 end
 
+function HighAlertCore:SetBorderThickness(value)
+    BORDER_THICKNESS = math.clamp(value, 3, 50)
+    if getgenv then getgenv().HighAlertThickness = BORDER_THICKNESS end
+end
+
+function HighAlertCore:GetBorderThickness()
+    return BORDER_THICKNESS
+end
+
 function HighAlertCore:Destroy()
     for _, name in ipairs(borderNames) do
         if borders[name] then
             borders[name]:Remove()
         end
+    end
+    for _, arrow in ipairs(arrowPool) do
+        if arrow.line1 then arrow.line1:Remove() end
+        if arrow.line2 then arrow.line2:Remove() end
     end
 end
 
@@ -313,9 +455,13 @@ end
 if getgenv then
     isEnabled = getgenv().HighAlertEnabled or false
     teamCheckEnabled = (getgenv().HighAlertTeamCheck == nil) and true or getgenv().HighAlertTeamCheck
+    arrowEnabled = getgenv().HighAlertArrowEnabled or false
+    ARROW_RADIUS = getgenv().HighAlertArrowRadius or 90
+    ARROW_SIZE = getgenv().HighAlertArrowSize or 22
 else
     isEnabled = false
     teamCheckEnabled = true
+    arrowEnabled = false
 end
 
 RunService.RenderStepped:Connect(function(dt)
