@@ -1377,29 +1377,66 @@ local MinimapCore = (function()
     local dragStart = nil
     local startPos = nil
 
+    local terrainPool = {}
+    
     local function GatherTerrain()
-        for _, t in pairs(terrainParts) do t.frame:Destroy() end
-        terrainParts = {}
-        if not isTerrainEnabled then return end
+        if not isTerrainEnabled or not mapFrame then return end
         
-        for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("BasePart") and v.Anchored and v.Transparency < 1 then
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return end
+        
+        -- Busca apenas partes perto do player (dentro de 2x do zoom)
+        local radius = mapZoom * 2
+        local success, parts = pcall(function() return workspace:GetPartBoundsInRadius(myRoot.Position, radius) end)
+        if not success or not parts then return end
+        
+        local validParts = {}
+        for _, v in ipairs(parts) do
+            if v.Anchored and v.Transparency < 1 then
                 if (v.Size.X > 5 or v.Size.Z > 5) and (v.Size.X < 400 and v.Size.Z < 400) then
                     -- Ignorar se for personagem
-                    if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory")) then continue end
-                    
-                    local f = Instance.new("Frame")
-                    f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
-                    f.BackgroundTransparency = 0.5
-                    f.BorderSizePixel = 1
-                    f.BorderColor3 = Color3.fromRGB(50, 50, 50)
-                    f.ZIndex = 1
-                    f.Parent = mapFrame
-                    table.insert(terrainParts, {part = v, frame = f})
+                    if v.Parent and not v.Parent:FindFirstChild("Humanoid") and not v.Parent:IsA("Accessory") then
+                        table.insert(validParts, v)
+                        if #validParts >= 150 then break end -- Capped for extreme optimization
+                    end
                 end
             end
         end
+        
+        -- Pool system para não criar/destruir frames constantemente
+        while #terrainPool < #validParts do
+            local f = Instance.new("Frame")
+            f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
+            f.BackgroundTransparency = 0.5
+            f.BorderSizePixel = 1
+            f.BorderColor3 = Color3.fromRGB(50, 50, 50)
+            f.ZIndex = 1
+            f.Parent = mapFrame
+            table.insert(terrainPool, f)
+        end
+        
+        terrainParts = {}
+        for i, part in ipairs(validParts) do
+            local f = terrainPool[i]
+            table.insert(terrainParts, {part = part, frame = f})
+        end
+        
+        -- Esconder frames não usados do pool
+        for i = #validParts + 1, #terrainPool do
+            terrainPool[i].Visible = false
+        end
     end
+    
+    -- Atualiza o mapa periodicamente em vez de escanear o workspace inteiro
+    task.spawn(function()
+        while true do
+            task.wait(2)
+            if isTerrainEnabled then
+                GatherTerrain()
+            end
+        end
+    end)
 
     -- Inicializa a GUI
     local function initUI()
@@ -1693,10 +1730,10 @@ local MinimapCore = (function()
         isTerrainEnabled = enabled
         if getgenv then getgenv().MinimapTerrain = enabled end
         if enabled then
-            task.spawn(GatherTerrain)
+            GatherTerrain()
         else
-            for _, t in pairs(terrainParts) do t.frame:Destroy() end
             terrainParts = {}
+            for _, f in pairs(terrainPool) do f.Visible = false end
         end
     end
     
