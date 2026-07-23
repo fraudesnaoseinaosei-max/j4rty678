@@ -1384,7 +1384,7 @@ local MinimapCore = (function()
         
         for _, v in pairs(workspace:GetDescendants()) do
             if v:IsA("BasePart") and v.Anchored and v.Transparency < 1 then
-                if v.Size.X > 5 or v.Size.Z > 5 then
+                if (v.Size.X > 5 or v.Size.Z > 5) and (v.Size.X < 400 and v.Size.Z < 400) then
                     -- Ignorar se for personagem
                     if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory")) then continue end
                     
@@ -1416,7 +1416,12 @@ local MinimapCore = (function()
         container.Active = true
         container.Parent = targetGui
 
-        mapFrame = Instance.new("Frame")
+        local successCanvas = pcall(function()
+            mapFrame = Instance.new("CanvasGroup")
+        end)
+        if not successCanvas or not mapFrame then
+            mapFrame = Instance.new("Frame")
+        end
         mapFrame.Size = UDim2.new(1, 0, 1, 0)
         mapFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
         mapFrame.BackgroundTransparency = 0.3
