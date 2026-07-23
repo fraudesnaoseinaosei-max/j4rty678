@@ -1384,7 +1384,7 @@ local MinimapCore = (function()
         
         local count = 0
         local added = 0
-        local maxTerrain = 350 -- Limite rígido para evitar queda de FPS no RenderStepped
+        local maxTerrain = 2500 -- Limite maior para não perder partes próximas
         
         for _, v in pairs(workspace:GetDescendants()) do
             count = count + 1
@@ -1393,8 +1393,8 @@ local MinimapCore = (function()
             if added >= maxTerrain then break end
             
             if v:IsA("BasePart") and v.Anchored and v.Transparency < 0.8 then
-                -- Ignorar muito grandes e muito pequenos. Exigir um pouco de altura (Y > 2) para ignorar chão/decals.
-                if (v.Size.X >= 10 or v.Size.Z >= 10) and v.Size.Y >= 2 and (v.Size.X < 350 and v.Size.Z < 350) then
+                -- Ignorar muito grandes e muito pequenos. Exigir um pouco de altura (Y >= 1)
+                if (v.Size.X >= 4 or v.Size.Z >= 4) and v.Size.Y >= 1 and (v.Size.X < 800 and v.Size.Z < 800) then
                     if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory")) then continue end
                     
                     local f = Instance.new("Frame")
@@ -1556,7 +1556,12 @@ local MinimapCore = (function()
         local camY = camera.CFrame.Rotation
         
         local camLook = camera.CFrame.LookVector
-        local camLookFlat = Vector3.new(camLook.X, 0, camLook.Z).Unit
+        local camLookFlat = Vector3.new(camLook.X, 0, camLook.Z)
+        if camLookFlat.Magnitude > 0.001 then
+            camLookFlat = camLookFlat.Unit
+        else
+            camLookFlat = Vector3.new(0, 0, -1)
+        end
         local camRight = Vector3.new(camLookFlat.Z, 0, -camLookFlat.X)
         local mapScale = (mapSize / 2) / mapZoom
         
