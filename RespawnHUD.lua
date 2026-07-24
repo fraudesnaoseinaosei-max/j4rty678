@@ -1383,10 +1383,8 @@ local MinimapCore = (function()
     local lastGatherPos = Vector3.new(0, -9999, 0)
     local lastGatherZoom = 0
     local isGathering = false
-    local terrainRenderCounter = 0
 
-    -- Coleta Dinâmica de Terreno estilo "Chunks" (Minecraft/GTA Minimap)
-    -- Carrega apenas o que está no raio de Zoom ao redor do jogador!
+    -- Coleta Dinâmica de Terreno estilo "Chunks" por Zoom e Altura do Andar Atual
     local function GatherTerrain()
         if not isTerrainEnabled or isGathering then return end
         isGathering = true
@@ -1408,20 +1406,20 @@ local MinimapCore = (function()
         end
         terrainParts = {}
 
-        local maxRadius = mapZoom * 1.25 -- Raio de busca proporcional ao Zoom
-        local maxTerrainLimit = 600 -- Limite inteligente de instâncias para garantir FPS Líquido
+        local maxRadius = mapZoom * 1.25
+        local maxTerrainLimit = 600
         local added = 0
         local count = 0
 
         for _, v in pairs(workspace:GetDescendants()) do
             count = count + 1
-            if count % 250 == 0 then task.wait() end -- Evitar congelamento de frame
+            if count % 250 == 0 then task.wait() end
 
             if added >= maxTerrainLimit then break end
 
             if v:IsA("BasePart") and v.Anchored then
                 -- FILTRO 1: Sólidos intangíveis invisíveis (Transparency >= 1 E CanCollide == false) são ignorados!
-                -- Se for transparente MAS tiver colisão (parede/barreira invisível), mantemos!
+                -- Barreira invisível tangível (CanCollide == true) é mantida!
                 if v.Transparency >= 1 and not v.CanCollide then
                     continue
                 end
@@ -1431,11 +1429,17 @@ local MinimapCore = (function()
                     continue
                 end
 
-                -- FILTRO 2: Distância espacial (Estilo Chunks do Minecraft / Radar GTA)
-                local distToPart = (v.Position - myPos).Magnitude
+                -- FILTRO 2: Altura do mesmo andar! Apenas paredes/peças na mesma altura do jogador (±7 studs)
+                -- Isso impede que tetos, telhados ou o andar de cima apareçam no minimapa!
+                local yDiff = math.abs(v.Position.Y - myPos.Y)
+                if yDiff > 7 then
+                    continue
+                end
+
+                -- FILTRO 3: Distância espacial (Raio do Zoom)
+                local distToPart = (Vector3.new(v.Position.X, 0, v.Position.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
                 if distToPart <= maxRadius then
-                    -- Ignorar partes gigantescas (chão/skybox) e peças insignificantes
-                    if (v.Size.X >= 3 or v.Size.Z >= 3) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
+                    if (v.Size.X >= 2.5 or v.Size.Z >= 2.5) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
                         local f = Instance.new("Frame")
                         f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
                         f.BackgroundTransparency = 0.5
@@ -1464,7 +1468,7 @@ local MinimapCore = (function()
         container = Instance.new("Frame")
         container.Name = "DreeZyMinimap"
         container.Size = UDim2.new(0, mapSize, 0, mapSize)
-        container.Position = UDim2.new(1, -mapSize - 20, 0, 20) -- Canto superior direito
+        container.Position = UDim2.new(1, -mapSize - 20, 0, 20)
         container.BackgroundTransparency = 1
         container.Active = true
         container.Parent = targetGui
@@ -1531,7 +1535,7 @@ local MinimapCore = (function()
             end
         end)
 
-        -- Listener global para drag suave quando o mouse sai da área do minimapa
+        -- Listener global para drag suave
         game:GetService("UserInputService").InputChanged:Connect(function(input)
             if dragging and not isLocked and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 dragInput = input
@@ -1554,10 +1558,9 @@ local MinimapCore = (function()
         if player.TeamColor then return player.TeamColor.Color end
         if player.Team and player.Team.TeamColor then return player.Team.TeamColor.Color end
         
-        -- Inimigo genérico se não tiver time (considerando FFA)
         if player ~= LocalPlayer then
              if LocalPlayer.Team then
-                 return Color3.fromRGB(255, 50, 50) -- Vermelho se inimigo
+                 return Color3.fromRGB(255, 50, 50)
              end
         end
         return Color3.fromRGB(255, 50, 50) 
@@ -1623,21 +1626,18 @@ local MinimapCore = (function()
         else
             camLookFlat = Vector3.new(0, 0, -1)
         end
-        local camRight = Vector3.new(-camLookFlat.Z, 0, camLookFlat.X) -- Corrigido: Rotação correta sem espelhamento
+        local camRight = Vector3.new(-camLookFlat.Z, 0, camLookFlat.X)
         local mapScale = (mapSize / 2) / mapZoom
 
-        -- Checar necessidade de re-scan dinâmico de Chunks do Terreno
+        -- Re-scan dinâmico quando o jogador se move 40 studs ou quando o Zoom muda
         if isTerrainEnabled then
-            if (myPos - lastGatherPos).Magnitude > (mapZoom * 0.35) or lastGatherZoom ~= mapZoom then
+            if (myPos - lastGatherPos).Magnitude > 40 or lastGatherZoom ~= mapZoom then
                 task.spawn(GatherTerrain)
             end
         end
 
-        -- Renderizar Terreno com Throttle (A cada 2 frames para otimização extrema de FPS)
-        terrainRenderCounter = terrainRenderCounter + 1
-        if isTerrainEnabled and (terrainRenderCounter % 2 == 0) then
-            local camYaw = math.atan2(-camLookFlat.X, -camLookFlat.Z)
-            
+        -- Renderizar Terreno A CADA FRAME para alinhamento 100% perfeito com a câmera
+        if isTerrainEnabled then
             for _, tData in pairs(terrainParts) do
                 local part = tData.part
                 local frame = tData.frame
@@ -1646,11 +1646,9 @@ local MinimapCore = (function()
                     continue
                 end
 
-                -- ELEVAÇÃO MULTI-ANDAR NO TERRENO:
-                -- Se a peça estiver mais de 16 studs acima ou abaixo do jogador, ESCONDER!
-                -- Isso evita que o andar de cima fique sobreposto ao andar de baixo!
+                -- Filtro estrito de altura: apenas o andar atual (±6.5 studs do jogador)
                 local yDiff = math.abs(part.Position.Y - myPos.Y)
-                if yDiff > 16 then
+                if yDiff > 6.5 then
                     frame.Visible = false
                     continue
                 end
@@ -1659,7 +1657,6 @@ local MinimapCore = (function()
                 local relX = offset:Dot(camRight)
                 local relZ = offset:Dot(camLookFlat)
 
-                -- Se a peça estiver fora do limite de visualização do minimapa, esconder
                 if math.abs(relX) > (mapZoom * 1.1) or math.abs(relZ) > (mapZoom * 1.1) then
                     frame.Visible = false
                 else
@@ -1673,13 +1670,17 @@ local MinimapCore = (function()
                     frame.Size = UDim2.new(0, sx, 0, sy)
                     frame.Position = UDim2.new(0.5, uiX - (sx/2), 0.5, uiY - (sy/2))
                     
-                    local partYaw = math.atan2(-part.CFrame.LookVector.X, -part.CFrame.LookVector.Z)
-                    frame.Rotation = math.deg(partYaw - camYaw)
+                    -- Projeção de rotação em espaço de câmera (sempre alinhado à orientação da câmera)
+                    local pLook = part.CFrame.LookVector
+                    local pLookRelX = pLook:Dot(camRight)
+                    local pLookRelZ = pLook:Dot(camLookFlat)
+                    local relAngleRad = math.atan2(pLookRelX, -pLookRelZ)
+                    frame.Rotation = math.deg(relAngleRad)
                 end
             end
         end
 
-        -- Renderizar Jogadores (Blips com Sistema de Elevação Opção B)
+        -- Renderizar TODOS os Jogadores até a distância total de Zoom
         for _, player in pairs(Players:GetPlayers()) do
             if player == LocalPlayer then continue end
 
@@ -1704,53 +1705,42 @@ local MinimapCore = (function()
                 blip.Visible = true
                 
                 local offset = enemyPos - myPos
-                -- Projeção
                 local relX = offset:Dot(camRight)
                 local relZ = offset:Dot(camLookFlat)
 
-                -- Escalar
                 local uiX = relX * mapScale
                 local uiY = -relZ * mapScale
 
-                -- ============================================
-                -- SISTEMA DE ELEVAÇÃO DO JOGADOR (OPÇÃO B)
-                -- ============================================
+                -- Sistema de Elevação Multi-Andar em Blips (Opção B)
                 local yDiff = enemyPos.Y - myPos.Y
                 local absY = math.abs(yDiff)
                 local elevLabel = blip:FindFirstChild("ElevIndicator")
 
-                -- Deadzone de altura: Se a diferença for <= 8 studs (muro/degrau), considera mesmo nível!
+                -- Deadzone de 8 studs (muro/degrau = mesmo nível)
                 if absY <= 8 then
                     blip.Size = UDim2.new(0, 6, 0, 6)
                     blip.Position = UDim2.new(0.5, uiX - 3, 0.5, uiY - 3)
                     if elevLabel then elevLabel.Text = "" end
                 else
-                    -- Exibe indicador de altura (▲/▼) e expande levemente o blip para legibilidade
                     blip.Size = UDim2.new(0, 10, 0, 10)
                     blip.Position = UDim2.new(0.5, uiX - 5, 0.5, uiY - 5)
 
                     if elevLabel then
                         if yDiff > 8 then
-                            -- Inimigo ACIMA
                             if absY > 22 then
-                                -- Muito acima (diferença extrema de altura / prédio)
                                 elevLabel.Text = "▲▲"
-                                elevLabel.TextColor3 = Color3.fromRGB(255, 220, 50) -- Alerta Amarelo
+                                elevLabel.TextColor3 = Color3.fromRGB(255, 220, 50)
                             else
-                                -- Moderadamente acima (1 andar acima)
                                 elevLabel.Text = "▲"
-                                elevLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Branco
+                                elevLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
                             end
                         else
-                            -- Inimigo ABAIXO (yDiff < -8)
                             if absY > 22 then
-                                -- Muito abaixo
                                 elevLabel.Text = "▼▼"
-                                elevLabel.TextColor3 = Color3.fromRGB(100, 200, 255) -- Ciano / Azul frio
+                                elevLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
                             else
-                                -- Moderadamente abaixo
                                 elevLabel.Text = "▼"
-                                elevLabel.TextColor3 = Color3.fromRGB(200, 200, 200) -- Cinza claro
+                                elevLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
                             end
                         end
                     end
@@ -1758,7 +1748,7 @@ local MinimapCore = (function()
             end
         end
         
-        -- Limpar blips de jogadores que saíram (coleta antes para não modificar tabela durante iteração)
+        -- Limpar blips de jogadores que saíram
         local toRemoveBlips = {}
         for p, blip in pairs(blips) do
             if not p.Parent then
