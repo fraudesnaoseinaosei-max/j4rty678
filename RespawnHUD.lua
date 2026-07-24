@@ -1384,7 +1384,7 @@ local MinimapCore = (function()
     local lastGatherZoom = 0
     local isGathering = false
 
-    -- Coleta Dinâmica de Terreno estilo "Chunks" por Zoom e Altura do Andar Atual
+    -- Coleta Dinâmica de Terreno por Zoom (Expandido) e Altura do Andar Atual
     local function GatherTerrain()
         if not isTerrainEnabled or isGathering then return end
         isGathering = true
@@ -1406,20 +1406,19 @@ local MinimapCore = (function()
         end
         terrainParts = {}
 
-        local maxRadius = mapZoom * 1.25
-        local maxTerrainLimit = 600
+        local maxRadius = mapZoom * 1.15
+        local maxTerrainLimit = 3500 -- Limite elevado para carregar tudo quando o Zoom for expandido
         local added = 0
         local count = 0
 
         for _, v in pairs(workspace:GetDescendants()) do
             count = count + 1
-            if count % 250 == 0 then task.wait() end
+            if count % 300 == 0 then task.wait() end
 
             if added >= maxTerrainLimit then break end
 
             if v:IsA("BasePart") and v.Anchored then
-                -- FILTRO 1: Sólidos intangíveis invisíveis (Transparency >= 1 E CanCollide == false) são ignorados!
-                -- Barreira invisível tangível (CanCollide == true) é mantida!
+                -- FILTRO 1: Sólidos intangíveis invisíveis (Transparency >= 1 E CanCollide == false) ignorados
                 if v.Transparency >= 1 and not v.CanCollide then
                     continue
                 end
@@ -1429,17 +1428,17 @@ local MinimapCore = (function()
                     continue
                 end
 
-                -- FILTRO 2: Altura do mesmo andar! Apenas paredes/peças na mesma altura do jogador (±7 studs)
-                -- Isso impede que tetos, telhados ou o andar de cima apareçam no minimapa!
+                -- FILTRO 2: Altura do mesmo andar! Apenas paredes/peças na mesma altura do jogador (±7.5 studs)
+                -- Isso garante que APENAS o andar atual apareça no minimapa (sem tetos ou andares superiores!)
                 local yDiff = math.abs(v.Position.Y - myPos.Y)
-                if yDiff > 7 then
+                if yDiff > 7.5 then
                     continue
                 end
 
-                -- FILTRO 3: Distância espacial (Raio do Zoom)
+                -- FILTRO 3: Distância espacial (Calculado exatamente com o Zoom atual do slider)
                 local distToPart = (Vector3.new(v.Position.X, 0, v.Position.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
                 if distToPart <= maxRadius then
-                    if (v.Size.X >= 2.5 or v.Size.Z >= 2.5) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
+                    if (v.Size.X >= 2 or v.Size.Z >= 2) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
                         local f = Instance.new("Frame")
                         f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
                         f.BackgroundTransparency = 0.5
@@ -1629,9 +1628,9 @@ local MinimapCore = (function()
         local camRight = Vector3.new(-camLookFlat.Z, 0, camLookFlat.X)
         local mapScale = (mapSize / 2) / mapZoom
 
-        -- Re-scan dinâmico quando o jogador se move 40 studs ou quando o Zoom muda
+        -- Re-scan dinâmico quando o jogador se move 35 studs ou quando o Zoom muda
         if isTerrainEnabled then
-            if (myPos - lastGatherPos).Magnitude > 40 or lastGatherZoom ~= mapZoom then
+            if (myPos - lastGatherPos).Magnitude > 35 or lastGatherZoom ~= mapZoom then
                 task.spawn(GatherTerrain)
             end
         end
@@ -1670,12 +1669,11 @@ local MinimapCore = (function()
                     frame.Size = UDim2.new(0, sx, 0, sy)
                     frame.Position = UDim2.new(0.5, uiX - (sx/2), 0.5, uiY - (sy/2))
                     
-                    -- Projeção de rotação em espaço de câmera (sempre alinhado à orientação da câmera)
-                    local pLook = part.CFrame.LookVector
-                    local pLookRelX = pLook:Dot(camRight)
-                    local pLookRelZ = pLook:Dot(camLookFlat)
-                    local relAngleRad = math.atan2(pLookRelX, -pLookRelZ)
-                    frame.Rotation = math.deg(relAngleRad)
+                    -- FÓRMULA MATEMÁTICA CORRETA DE ROTAÇÃO DA PAREDE:
+                    -- Projeta o RightVector (eixo X local da parede) no espaço da câmera
+                    local rx = part.CFrame.RightVector:Dot(camRight)
+                    local rz = part.CFrame.RightVector:Dot(camLookFlat)
+                    frame.Rotation = math.deg(math.atan2(-rz, rx))
                 end
             end
         end
