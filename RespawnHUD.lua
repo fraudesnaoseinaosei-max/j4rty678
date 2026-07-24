@@ -1373,88 +1373,81 @@ local MinimapCore = (function()
     local mapCorner = nil
     local centerBlip = nil
     local blips = {} -- { [Player] = Frame com TextLabel ElevIndicator }
-    local terrainParts = {} -- { {part=BasePart, frame=Frame} }
+    -- Arquitetura Zero-Flicker: Cache de Sólidos e Object Pool de Frames
+    local cachedMapParts = {} -- Array de estruturas {part, pos, size, right}
+    local framePool = {} -- Array de UI Frames reutilizáveis
+    local activeFrameCount = 0
+    local isScanningMap = false
+    local lastScanTime = 0
 
     local dragging = false
     local dragInput = nil
     local dragStart = nil
     local startPos = nil
 
-    local lastGatherPos = Vector3.new(0, -9999, 0)
-    local lastGatherZoom = 0
-    local isGathering = false
-
-    -- Coleta Dinâmica de Terreno por Zoom (Expandido) e Altura do Andar Atual
-    local function GatherTerrain()
-        if not isTerrainEnabled or isGathering then return end
-        isGathering = true
-
-        local myChar = LocalPlayer.Character
-        local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
-        if not myRoot then
-            isGathering = false
-            return
+    -- Obter UI Frame do Object Pool sem instanciar/destruir (0% GC Leak / Zero Lag)
+    local function getPooledFrame()
+        activeFrameCount = activeFrameCount + 1
+        local frame = framePool[activeFrameCount]
+        if not frame then
+            frame = Instance.new("Frame")
+            frame.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
+            frame.BackgroundTransparency = 0.5
+            frame.BorderSizePixel = 1
+            frame.BorderColor3 = Color3.fromRGB(40, 40, 45)
+            frame.ZIndex = 1
+            frame.Parent = mapFrame
+            table.insert(framePool, frame)
         end
+        return frame
+    end
 
-        local myPos = myRoot.Position
-        lastGatherPos = myPos
-        lastGatherZoom = mapZoom
-
-        -- Limpar terreno anterior
-        for _, t in pairs(terrainParts) do
-            if t.frame then t.frame:Destroy() end
+    -- Esconder frames excedentes no pool ao final do frame
+    local function cleanUnusedFrames()
+        for i = activeFrameCount + 1, #framePool do
+            framePool[i].Visible = false
         end
-        terrainParts = {}
+    end
 
-        local maxRadius = mapZoom * 1.15
-        local maxTerrainLimit = 3500 -- Limite elevado para carregar tudo quando o Zoom for expandido
-        local added = 0
+    -- Varredura Global de Sólidos do Mapa em Background (Executa sem congelar nem apagar a tela)
+    local function ScanMapTerrain()
+        if not isTerrainEnabled or isScanningMap then return end
+        isScanningMap = true
+
+        local newCache = {}
         local count = 0
 
         for _, v in pairs(workspace:GetDescendants()) do
             count = count + 1
-            if count % 300 == 0 then task.wait() end
-
-            if added >= maxTerrainLimit then break end
+            if count % 400 == 0 then task.wait() end
 
             if v:IsA("BasePart") and v.Anchored then
-                -- FILTRO 1: Sólidos intangíveis invisíveis (Transparency >= 1 E CanCollide == false) ignorados
+                -- Ignorar intangíveis invisíveis (Transparency >= 1 E CanCollide == false)
                 if v.Transparency >= 1 and not v.CanCollide then
                     continue
                 end
 
-                -- Ignorar partes do próprio personagem ou de outros jogadores/ferramentas
+                -- Ignorar personagens, ferramentas e acessórios
                 if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory") or v.Parent:IsA("Tool")) then
                     continue
                 end
 
-                -- FILTRO 2: Altura do mesmo andar! Apenas paredes/peças na mesma altura do jogador (±7.5 studs)
-                -- Isso garante que APENAS o andar atual apareça no minimapa (sem tetos ou andares superiores!)
-                local yDiff = math.abs(v.Position.Y - myPos.Y)
-                if yDiff > 7.5 then
-                    continue
-                end
-
-                -- FILTRO 3: Distância espacial (Calculado exatamente com o Zoom atual do slider)
-                local distToPart = (Vector3.new(v.Position.X, 0, v.Position.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
-                if distToPart <= maxRadius then
-                    if (v.Size.X >= 2 or v.Size.Z >= 2) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
-                        local f = Instance.new("Frame")
-                        f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
-                        f.BackgroundTransparency = 0.5
-                        f.BorderSizePixel = 1
-                        f.BorderColor3 = Color3.fromRGB(40, 40, 45)
-                        f.ZIndex = 1
-                        f.Parent = mapFrame
-
-                        table.insert(terrainParts, {part = v, frame = f})
-                        added = added + 1
-                    end
+                -- Filtrar tamanhos úteis (paredes, estruturas, obstáculos)
+                if (v.Size.X >= 2 or v.Size.Z >= 2) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
+                    table.insert(newCache, {
+                        part = v,
+                        pos = v.Position,
+                        size = v.Size,
+                        right = v.CFrame.RightVector
+                    })
                 end
             end
         end
 
-        isGathering = false
+        -- Troca atômica do cache em memória sem apagar a tela
+        cachedMapParts = newCache
+        lastScanTime = tick()
+        isScanningMap = false
     end
 
     -- Inicializa a GUI
@@ -1613,6 +1606,7 @@ local MinimapCore = (function()
         local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
         if not myRoot then
             for _, blip in pairs(blips) do blip.Visible = false end
+            cleanUnusedFrames()
             return
         end
 
@@ -1628,55 +1622,51 @@ local MinimapCore = (function()
         local camRight = Vector3.new(-camLookFlat.Z, 0, camLookFlat.X)
         local mapScale = (mapSize / 2) / mapZoom
 
-        -- Re-scan dinâmico quando o jogador se move 35 studs ou quando o Zoom muda
+        -- Re-scan do mapa em background a cada 45 segundos (ou se o cache estiver vazio)
         if isTerrainEnabled then
-            if (myPos - lastGatherPos).Magnitude > 35 or lastGatherZoom ~= mapZoom then
-                task.spawn(GatherTerrain)
+            if #cachedMapParts == 0 or (tick() - lastScanTime) > 45 then
+                task.spawn(ScanMapTerrain)
             end
         end
 
-        -- Renderizar Terreno A CADA FRAME para alinhamento 100% perfeito com a câmera
-        if isTerrainEnabled then
-            for _, tData in pairs(terrainParts) do
-                local part = tData.part
-                local frame = tData.frame
-                if not part or not part.Parent then
-                    frame.Visible = false
-                    continue
-                end
+        -- Renderizar Terreno Instantâneo com Object Pool (ZERO FLICKERING / ZERO APAGÕES)
+        activeFrameCount = 0
+        if isTerrainEnabled and #cachedMapParts > 0 then
+            local maxRadius = mapZoom * 1.15
 
-                -- Filtro estrito de altura: apenas o andar atual (±6.5 studs do jogador)
-                local yDiff = math.abs(part.Position.Y - myPos.Y)
-                if yDiff > 6.5 then
-                    frame.Visible = false
-                    continue
-                end
-                
-                local offset = part.Position - myPos
+            for _, data in ipairs(cachedMapParts) do
+                local part = data.part
+                if not part or not part.Parent then continue end
+
+                -- FILTRO 1: Altura do mesmo andar! Apenas o andar do jogador (±7.5 studs)
+                local yDiff = math.abs(data.pos.Y - myPos.Y)
+                if yDiff > 7.5 then continue end
+
+                -- FILTRO 2: Distância no raio do Zoom atual do minimapa
+                local offset = data.pos - myPos
                 local relX = offset:Dot(camRight)
                 local relZ = offset:Dot(camLookFlat)
 
-                if math.abs(relX) > (mapZoom * 1.1) or math.abs(relZ) > (mapZoom * 1.1) then
-                    frame.Visible = false
-                else
-                    frame.Visible = true
+                if math.abs(relX) <= maxRadius and math.abs(relZ) <= maxRadius then
+                    local frame = getPooledFrame()
                     local uiX = relX * mapScale
                     local uiY = -relZ * mapScale
-                    
-                    local sx = math.max(2, (part.Size.X * mapScale))
-                    local sy = math.max(2, (part.Size.Z * mapScale))
-                    
+
+                    local sx = math.max(2, data.size.X * mapScale)
+                    local sy = math.max(2, data.size.Z * mapScale)
+
                     frame.Size = UDim2.new(0, sx, 0, sy)
                     frame.Position = UDim2.new(0.5, uiX - (sx/2), 0.5, uiY - (sy/2))
-                    
-                    -- FÓRMULA MATEMÁTICA CORRETA DE ROTAÇÃO DA PAREDE:
-                    -- Projeta o RightVector (eixo X local da parede) no espaço da câmera
-                    local rx = part.CFrame.RightVector:Dot(camRight)
-                    local rz = part.CFrame.RightVector:Dot(camLookFlat)
+
+                    -- Rotação exata projetada via RightVector da peça
+                    local rx = data.right:Dot(camRight)
+                    local rz = data.right:Dot(camLookFlat)
                     frame.Rotation = math.deg(math.atan2(-rz, rx))
+                    frame.Visible = true
                 end
             end
         end
+        cleanUnusedFrames()
 
         -- Renderizar TODOS os Jogadores até a distância total de Zoom
         for _, player in pairs(Players:GetPlayers()) do
@@ -1767,6 +1757,9 @@ local MinimapCore = (function()
         if enabled then
             initUI()
             if container then container.Visible = true end
+            if #cachedMapParts == 0 then
+                task.spawn(ScanMapTerrain)
+            end
             if not renderConnection then
                 renderConnection = RunService.RenderStepped:Connect(updateMap)
             end
@@ -1820,10 +1813,11 @@ local MinimapCore = (function()
         isTerrainEnabled = enabled
         if getgenv then getgenv().MinimapTerrain = enabled end
         if enabled then
-            task.spawn(GatherTerrain)
+            if #cachedMapParts == 0 then
+                task.spawn(ScanMapTerrain)
+            end
         else
-            for _, t in pairs(terrainParts) do t.frame:Destroy() end
-            terrainParts = {}
+            cleanUnusedFrames()
         end
     end
     
@@ -1834,9 +1828,6 @@ local MinimapCore = (function()
     function Minimap:SetZoom(zoom)
         mapZoom = zoom
         if getgenv then getgenv().MinimapZoom = zoom end
-        if isTerrainEnabled then
-            task.spawn(GatherTerrain)
-        end
     end
     
     function Minimap:GetZoom()
