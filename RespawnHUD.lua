@@ -226,13 +226,16 @@ local AimbotCore = (function()
     local function isTargetVisible(targetPart, character)
         local cameraPos = camera.CFrame.Position
         local _, onscreen = camera:WorldToViewportPoint(targetPart.Position)
-        if onscreen then
-            local ray = Ray.new(cameraPos, targetPart.Position - cameraPos)
-            local hitPart = workspace:FindPartOnRayWithIgnoreList(ray, player.Character:GetDescendants())
-            if hitPart and hitPart:IsDescendantOf(character) then return true else return false end
-        else
-            return false
+        if not onscreen then return false end
+        
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        rayParams.FilterDescendantsInstances = {player.Character}
+        local result = workspace:Raycast(cameraPos, targetPart.Position - cameraPos, rayParams)
+        if result and result.Instance and result.Instance:IsDescendantOf(character) then
+            return true
         end
+        return false
     end
 
     local function isSameTeam(targetPlayer)
@@ -284,7 +287,7 @@ local AimbotCore = (function()
 
                     if shouldTarget and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") and targetPlayer.Character:FindFirstChild("Humanoid") then
                         if not isTargetInFOV(targetPlayer.Character.Head) then return end
-                        local distance = (mouse.Hit.Position - targetPlayer.Character.PrimaryPart.Position).magnitude
+                        local distance = (mouse.Hit.Position - targetPlayer.Character.Head.Position).magnitude
                         if distance < nearestDistance then
                             if isTargetVisible(targetPlayer.Character.Head, targetPlayer.Character) and targetPlayer.Character.Humanoid.Health > 0 then
                                 nearestTarget = targetPlayer
@@ -1350,7 +1353,7 @@ local HighAlertCore = (function()
     return HighAlert
 end)()
 
--- [6] MINIMAP CORE (Radar Arrastável)
+-- [6] MINIMAP CORE (Radar Arrastável Otimizado & Elevação Multi-Andar)
 local MinimapCore = (function()
     local RunService = game:GetService("RunService")
     local Players = game:GetService("Players")
@@ -1369,7 +1372,7 @@ local MinimapCore = (function()
     local mapFrame = nil
     local mapCorner = nil
     local centerBlip = nil
-    local blips = {} -- { [Player] = Frame }
+    local blips = {} -- { [Player] = Frame com TextLabel ElevIndicator }
     local terrainParts = {} -- { {part=BasePart, frame=Frame} }
 
     local dragging = false
@@ -1377,38 +1380,78 @@ local MinimapCore = (function()
     local dragStart = nil
     local startPos = nil
 
+    local lastGatherPos = Vector3.new(0, -9999, 0)
+    local lastGatherZoom = 0
+    local isGathering = false
+    local terrainRenderCounter = 0
+
+    -- Coleta Dinâmica de Terreno estilo "Chunks" (Minecraft/GTA Minimap)
+    -- Carrega apenas o que está no raio de Zoom ao redor do jogador!
     local function GatherTerrain()
-        for _, t in pairs(terrainParts) do t.frame:Destroy() end
+        if not isTerrainEnabled or isGathering then return end
+        isGathering = true
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
+        if not myRoot then
+            isGathering = false
+            return
+        end
+
+        local myPos = myRoot.Position
+        lastGatherPos = myPos
+        lastGatherZoom = mapZoom
+
+        -- Limpar terreno anterior
+        for _, t in pairs(terrainParts) do
+            if t.frame then t.frame:Destroy() end
+        end
         terrainParts = {}
-        if not isTerrainEnabled then return end
-        
-        local count = 0
+
+        local maxRadius = mapZoom * 1.25 -- Raio de busca proporcional ao Zoom
+        local maxTerrainLimit = 600 -- Limite inteligente de instâncias para garantir FPS Líquido
         local added = 0
-        local maxTerrain = 2500 -- Limite maior para não perder partes próximas
-        
+        local count = 0
+
         for _, v in pairs(workspace:GetDescendants()) do
             count = count + 1
-            if count % 200 == 0 then task.wait() end -- Evitar congelamento (lag spike) ao carregar
-            
-            if added >= maxTerrain then break end
-            
-            if v:IsA("BasePart") and v.Anchored and v.Transparency < 0.8 then
-                -- Ignorar muito grandes e muito pequenos. Exigir um pouco de altura (Y >= 1)
-                if (v.Size.X >= 4 or v.Size.Z >= 4) and v.Size.Y >= 1 and (v.Size.X < 800 and v.Size.Z < 800) then
-                    if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory")) then continue end
-                    
-                    local f = Instance.new("Frame")
-                    f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
-                    f.BackgroundTransparency = 0.5
-                    f.BorderSizePixel = 1
-                    f.BorderColor3 = Color3.fromRGB(50, 50, 50)
-                    f.ZIndex = 1
-                    f.Parent = mapFrame
-                    table.insert(terrainParts, {part = v, frame = f})
-                    added = added + 1
+            if count % 250 == 0 then task.wait() end -- Evitar congelamento de frame
+
+            if added >= maxTerrainLimit then break end
+
+            if v:IsA("BasePart") and v.Anchored then
+                -- FILTRO 1: Sólidos intangíveis invisíveis (Transparency >= 1 E CanCollide == false) são ignorados!
+                -- Se for transparente MAS tiver colisão (parede/barreira invisível), mantemos!
+                if v.Transparency >= 1 and not v.CanCollide then
+                    continue
+                end
+
+                -- Ignorar partes do próprio personagem ou de outros jogadores/ferramentas
+                if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory") or v.Parent:IsA("Tool")) then
+                    continue
+                end
+
+                -- FILTRO 2: Distância espacial (Estilo Chunks do Minecraft / Radar GTA)
+                local distToPart = (v.Position - myPos).Magnitude
+                if distToPart <= maxRadius then
+                    -- Ignorar partes gigantescas (chão/skybox) e peças insignificantes
+                    if (v.Size.X >= 3 or v.Size.Z >= 3) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
+                        local f = Instance.new("Frame")
+                        f.BackgroundColor3 = Color3.fromRGB(90, 90, 95)
+                        f.BackgroundTransparency = 0.5
+                        f.BorderSizePixel = 1
+                        f.BorderColor3 = Color3.fromRGB(40, 40, 45)
+                        f.ZIndex = 1
+                        f.Parent = mapFrame
+
+                        table.insert(terrainParts, {part = v, frame = f})
+                        added = added + 1
+                    end
                 end
             end
         end
+
+        isGathering = false
     end
 
     -- Inicializa a GUI
@@ -1487,6 +1530,13 @@ local MinimapCore = (function()
                 dragInput = input
             end
         end)
+
+        -- Listener global para drag suave quando o mouse sai da área do minimapa
+        game:GetService("UserInputService").InputChanged:Connect(function(input)
+            if dragging and not isLocked and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                dragInput = input
+            end
+        end)
     end
 
     local function updateDrag()
@@ -1527,6 +1577,19 @@ local MinimapCore = (function()
         corner.CornerRadius = UDim.new(1, 0)
         corner.Parent = blip
 
+        -- Indicador de Elevação Multi-Andar (Opção B: ▲ / ▼)
+        local elevLabel = Instance.new("TextLabel")
+        elevLabel.Name = "ElevIndicator"
+        elevLabel.Size = UDim2.new(1, 0, 1, 0)
+        elevLabel.Position = UDim2.new(0, 0, 0, 0)
+        elevLabel.BackgroundTransparency = 1
+        elevLabel.Font = Enum.Font.GothamBold
+        elevLabel.TextSize = 9
+        elevLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        elevLabel.Text = ""
+        elevLabel.ZIndex = 4
+        elevLabel.Parent = blip
+
         blip.Parent = mapFrame
         blips[player] = blip
         return blip
@@ -1545,7 +1608,7 @@ local MinimapCore = (function()
         updateDrag()
 
         local myChar = LocalPlayer.Character
-        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
         if not myRoot then
             for _, blip in pairs(blips) do blip.Visible = false end
             return
@@ -1553,8 +1616,6 @@ local MinimapCore = (function()
 
         local myPos = myRoot.Position
         local camera = workspace.CurrentCamera
-        local camY = camera.CFrame.Rotation
-        
         local camLook = camera.CFrame.LookVector
         local camLookFlat = Vector3.new(camLook.X, 0, camLook.Z)
         if camLookFlat.Magnitude > 0.001 then
@@ -1562,13 +1623,20 @@ local MinimapCore = (function()
         else
             camLookFlat = Vector3.new(0, 0, -1)
         end
-        local camRight = Vector3.new(camLookFlat.Z, 0, -camLookFlat.X)
+        local camRight = Vector3.new(-camLookFlat.Z, 0, camLookFlat.X) -- Corrigido: Rotação correta sem espelhamento
         local mapScale = (mapSize / 2) / mapZoom
-        
-        -- Atualizar Terreno
+
+        -- Checar necessidade de re-scan dinâmico de Chunks do Terreno
         if isTerrainEnabled then
+            if (myPos - lastGatherPos).Magnitude > (mapZoom * 0.35) or lastGatherZoom ~= mapZoom then
+                task.spawn(GatherTerrain)
+            end
+        end
+
+        -- Renderizar Terreno com Throttle (A cada 2 frames para otimização extrema de FPS)
+        terrainRenderCounter = terrainRenderCounter + 1
+        if isTerrainEnabled and (terrainRenderCounter % 2 == 0) then
             local camYaw = math.atan2(-camLookFlat.X, -camLookFlat.Z)
-            local maxDistSq = (mapZoom * 1.5) * (mapZoom * 1.5) -- Otimização: calcular distância ao quadrado
             
             for _, tData in pairs(terrainParts) do
                 local part = tData.part
@@ -1577,17 +1645,25 @@ local MinimapCore = (function()
                     frame.Visible = false
                     continue
                 end
+
+                -- ELEVAÇÃO MULTI-ANDAR NO TERRENO:
+                -- Se a peça estiver mais de 16 studs acima ou abaixo do jogador, ESCONDER!
+                -- Isso evita que o andar de cima fique sobreposto ao andar de baixo!
+                local yDiff = math.abs(part.Position.Y - myPos.Y)
+                if yDiff > 16 then
+                    frame.Visible = false
+                    continue
+                end
                 
                 local offset = part.Position - myPos
-                local distSq = offset.X^2 + offset.Z^2
-                
-                if distSq > maxDistSq then
+                local relX = offset:Dot(camRight)
+                local relZ = offset:Dot(camLookFlat)
+
+                -- Se a peça estiver fora do limite de visualização do minimapa, esconder
+                if math.abs(relX) > (mapZoom * 1.1) or math.abs(relZ) > (mapZoom * 1.1) then
                     frame.Visible = false
                 else
                     frame.Visible = true
-                    local relX = offset:Dot(camRight)
-                    local relZ = offset:Dot(camLookFlat)
-                    
                     local uiX = relX * mapScale
                     local uiY = -relZ * mapScale
                     
@@ -1603,11 +1679,12 @@ local MinimapCore = (function()
             end
         end
 
+        -- Renderizar Jogadores (Blips com Sistema de Elevação Opção B)
         for _, player in pairs(Players:GetPlayers()) do
             if player == LocalPlayer then continue end
 
             local character = player.Character
-            local enemyRoot = character and character:FindFirstChild("HumanoidRootPart")
+            local enemyRoot = character and (character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head"))
             local humanoid = character and character:FindFirstChild("Humanoid")
 
             if not enemyRoot or not humanoid or humanoid.Health <= 0 then
@@ -1635,16 +1712,61 @@ local MinimapCore = (function()
                 local uiX = relX * mapScale
                 local uiY = -relZ * mapScale
 
-                -- Posicionar a partir do centro (0.5, 0.5)
-                blip.Position = UDim2.new(0.5, uiX - 3, 0.5, uiY - 3)
+                -- ============================================
+                -- SISTEMA DE ELEVAÇÃO DO JOGADOR (OPÇÃO B)
+                -- ============================================
+                local yDiff = enemyPos.Y - myPos.Y
+                local absY = math.abs(yDiff)
+                local elevLabel = blip:FindFirstChild("ElevIndicator")
+
+                -- Deadzone de altura: Se a diferença for <= 8 studs (muro/degrau), considera mesmo nível!
+                if absY <= 8 then
+                    blip.Size = UDim2.new(0, 6, 0, 6)
+                    blip.Position = UDim2.new(0.5, uiX - 3, 0.5, uiY - 3)
+                    if elevLabel then elevLabel.Text = "" end
+                else
+                    -- Exibe indicador de altura (▲/▼) e expande levemente o blip para legibilidade
+                    blip.Size = UDim2.new(0, 10, 0, 10)
+                    blip.Position = UDim2.new(0.5, uiX - 5, 0.5, uiY - 5)
+
+                    if elevLabel then
+                        if yDiff > 8 then
+                            -- Inimigo ACIMA
+                            if absY > 22 then
+                                -- Muito acima (diferença extrema de altura / prédio)
+                                elevLabel.Text = "▲▲"
+                                elevLabel.TextColor3 = Color3.fromRGB(255, 220, 50) -- Alerta Amarelo
+                            else
+                                -- Moderadamente acima (1 andar acima)
+                                elevLabel.Text = "▲"
+                                elevLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Branco
+                            end
+                        else
+                            -- Inimigo ABAIXO (yDiff < -8)
+                            if absY > 22 then
+                                -- Muito abaixo
+                                elevLabel.Text = "▼▼"
+                                elevLabel.TextColor3 = Color3.fromRGB(100, 200, 255) -- Ciano / Azul frio
+                            else
+                                -- Moderadamente abaixo
+                                elevLabel.Text = "▼"
+                                elevLabel.TextColor3 = Color3.fromRGB(200, 200, 200) -- Cinza claro
+                            end
+                        end
+                    end
+                end
             end
         end
         
-        -- Limpar blips de jogadores que saíram
+        -- Limpar blips de jogadores que saíram (coleta antes para não modificar tabela durante iteração)
+        local toRemoveBlips = {}
         for p, blip in pairs(blips) do
             if not p.Parent then
-                removeBlip(p)
+                table.insert(toRemoveBlips, p)
             end
+        end
+        for _, p in ipairs(toRemoveBlips) do
+            removeBlip(p)
         end
     end
 
@@ -1724,6 +1846,9 @@ local MinimapCore = (function()
     function Minimap:SetZoom(zoom)
         mapZoom = zoom
         if getgenv then getgenv().MinimapZoom = zoom end
+        if isTerrainEnabled then
+            task.spawn(GatherTerrain)
+        end
     end
     
     function Minimap:GetZoom()
@@ -1971,7 +2096,6 @@ function VoidLib:CreateWindow()
         closeTween.Completed:Connect(function() ModalOverlay:Destroy() end)
 
         -- Startup Animation for Main
-        Main.Visible = true
         -- Startup Animation for Main
         Main.Visible = true
         if isMobile then
@@ -2760,22 +2884,7 @@ function VoidLib:CreateWindow()
         return TabObj
     end
     
-    -- Dragging Logic
-    local dragging, dragInput, dragStart, startPos
-    local function update(input)
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-    Main.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if getgenv().IsDraggingMiniHUD then return end -- Prevent conflict
-            dragging = true; dragStart = input.Position; startPos = Main.Position
-            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-        end
-    end)
-    Main.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then update(input) end
-    end)
+    -- Drag do Main é gerenciado por MakeDraggable(Main) na inicialização
 
     -- Toggle Logic (Right Shift)
     local uiOpen = true
@@ -3150,7 +3259,6 @@ do
     local draggingAFK, dragInputAFK, dragStartAFK, startPosAFK
     AFKHud.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            getgenv().IsDraggingMiniHUD = true -- Signal conflict prevention
             draggingAFK = true
             dragStartAFK = input.Position
             startPosAFK = AFKHud.Position
@@ -3158,7 +3266,6 @@ do
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     draggingAFK = false
-                    getgenv().IsDraggingMiniHUD = false
                 end
             end)
         end
