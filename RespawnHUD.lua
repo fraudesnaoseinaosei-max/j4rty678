@@ -2285,12 +2285,230 @@ function VoidLib:CreateWindow()
                 return EFrame
             end
 
-            function GroupObj:Toggle(text, default, callback)
+            -- Criador de Hubs Secundários (Sub-Windows/Modais Arrastáveis com Engrenagem)
+            local function CreateSubWindow(titleText)
+                local SubWindowFrame = Instance.new("Frame")
+                SubWindowFrame.Name = "SubHub_" .. titleText:gsub("%s+", "")
+                SubWindowFrame.Size = UDim2.new(0, 360, 0, 260)
+                SubWindowFrame.Position = UDim2.new(0.5, -180, 0.5, -130)
+                SubWindowFrame.BackgroundColor3 = Themes.Background
+                SubWindowFrame.BorderSizePixel = 0
+                SubWindowFrame.ZIndex = 80
+                SubWindowFrame.Visible = false
+                SubWindowFrame.Parent = ScreenGui
+
+                local SubCorner = Instance.new("UICorner"); SubCorner.CornerRadius = UDim.new(0, 10); SubCorner.Parent = SubWindowFrame
+                local SubStroke = Instance.new("UIStroke"); SubStroke.Color = Themes.Accent; SubStroke.Transparency = 0.4; SubStroke.Thickness = 1; SubStroke.Parent = SubWindowFrame
+
+                MakeDraggable(SubWindowFrame)
+
+                -- Header do Hub Secundário
+                local Header = Instance.new("Frame")
+                Header.Size = UDim2.new(1, 0, 0, 40)
+                Header.BackgroundColor3 = Themes.Sidebar
+                Header.BorderSizePixel = 0
+                Header.ZIndex = 81
+                Header.Parent = SubWindowFrame
+                local HeaderCorner = Instance.new("UICorner"); HeaderCorner.CornerRadius = UDim.new(0, 10); HeaderCorner.Parent = Header
+                local HeaderFix = Instance.new("Frame"); HeaderFix.Size = UDim2.new(1, 0, 0, 10); HeaderFix.Position = UDim2.new(0, 0, 1, -10); HeaderFix.BackgroundColor3 = Themes.Sidebar; HeaderFix.BorderSizePixel = 0; HeaderFix.ZIndex = 81; HeaderFix.Parent = Header
+
+                local GearIconHeader = Instance.new("ImageLabel")
+                GearIconHeader.Size = UDim2.new(0, 18, 0, 18)
+                GearIconHeader.Position = UDim2.new(0, 12, 0.5, -9)
+                GearIconHeader.BackgroundTransparency = 1
+                GearIconHeader.Image = "rbxassetid://6031280882"
+                GearIconHeader.ImageColor3 = Themes.Accent
+                GearIconHeader.ZIndex = 82
+                GearIconHeader.Parent = Header
+
+                local SubTitle = Instance.new("TextLabel")
+                SubTitle.Text = titleText
+                SubTitle.Font = Enum.Font.GothamBold
+                SubTitle.TextSize = 13
+                SubTitle.TextColor3 = Themes.Text
+                SubTitle.Size = UDim2.new(1, -75, 1, 0)
+                SubTitle.Position = UDim2.new(0, 36, 0, 0)
+                SubTitle.BackgroundTransparency = 1
+                SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+                SubTitle.ZIndex = 82
+                SubTitle.Parent = Header
+
+                -- Botão X Vermelho de Fechar
+                local CloseBtn = Instance.new("TextButton")
+                CloseBtn.Text = "✕"
+                CloseBtn.Font = Enum.Font.GothamBold
+                CloseBtn.TextSize = 13
+                CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+                CloseBtn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
+                CloseBtn.Size = UDim2.new(0, 24, 0, 24)
+                CloseBtn.Position = UDim2.new(1, -32, 0.5, -12)
+                CloseBtn.ZIndex = 83
+                CloseBtn.Parent = Header
+                local CBCorner = Instance.new("UICorner"); CBCorner.CornerRadius = UDim.new(0, 6); CBCorner.Parent = CloseBtn
+
+                CloseBtn.MouseButton1Click:Connect(function()
+                    local closeTween = TweenService:Create(SubWindowFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.new(0, 360, 0, 0), BackgroundTransparency = 1})
+                    closeTween:Play()
+                    closeTween.Completed:Connect(function()
+                        SubWindowFrame.Visible = false
+                        SubWindowFrame.Size = UDim2.new(0, 360, 0, 260)
+                        SubWindowFrame.BackgroundTransparency = 0
+                    end)
+                end)
+
+                -- Container de Rolagem dos elementos
+                local SubContent = Instance.new("ScrollingFrame")
+                SubContent.Size = UDim2.new(1, -16, 1, -50)
+                SubContent.Position = UDim2.new(0, 8, 0, 44)
+                SubContent.BackgroundTransparency = 1
+                SubContent.BorderSizePixel = 0
+                SubContent.ScrollBarThickness = 2
+                SubContent.ScrollBarImageColor3 = Themes.Accent
+                SubContent.ZIndex = 81
+                SubContent.Parent = SubWindowFrame
+
+                local SubLayout = Instance.new("UIListLayout"); SubLayout.Padding = UDim.new(0, 6); SubLayout.SortOrder = Enum.SortOrder.LayoutOrder; SubLayout.Parent = SubContent
+                local SubPad = Instance.new("UIPadding"); SubPad.PaddingTop = UDim.new(0, 4); SubPad.PaddingBottom = UDim.new(0, 8); SubPad.PaddingLeft = UDim.new(0, 4); SubPad.PaddingRight = UDim.new(0, 8); SubPad.Parent = SubContent
+
+                SubLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+                    SubContent.CanvasSize = UDim2.new(0, 0, 0, SubLayout.AbsoluteContentSize.Y + 16)
+                end)
+
+                -- Construtor de Elementos do Sub-Hub
+                local SubGroupObj = {}
+                local function CreateSubElementFrame()
+                    local SEFrame = Instance.new("Frame")
+                    SEFrame.Size = UDim2.new(1, 0, 0, 36)
+                    SEFrame.BackgroundColor3 = Themes.Element
+                    SEFrame.ZIndex = 82
+                    SEFrame.Parent = SubContent
+                    local SEC = Instance.new("UICorner"); SEC.CornerRadius = UDim.new(0, 6); SEC.Parent = SEFrame
+                    return SEFrame
+                end
+
+                function SubGroupObj:Toggle(stext, sdefault, scallback)
+                    local STFrame = CreateSubElementFrame()
+                    local STLab = Instance.new("TextLabel")
+                    STLab.Text = stext
+                    STLab.Size = UDim2.new(1, -60, 1, 0)
+                    STLab.Position = UDim2.new(0, 10, 0, 0)
+                    STLab.BackgroundTransparency = 1
+                    STLab.Font = Enum.Font.GothamMedium
+                    STLab.TextColor3 = Themes.Text
+                    STLab.TextSize = 13
+                    STLab.TextXAlignment = Enum.TextXAlignment.Left
+                    STLab.ZIndex = 83
+                    STLab.Parent = STFrame
+
+                    local STBtn = Instance.new("TextButton")
+                    STBtn.Size = UDim2.new(0, 40, 0, 20)
+                    STBtn.Position = UDim2.new(1, -50, 0.5, -10)
+                    STBtn.BackgroundColor3 = sdefault and Themes.Accent or Color3.fromRGB(60,60,65)
+                    STBtn.Text = ""
+                    STBtn.ZIndex = 83
+                    STBtn.Parent = STFrame
+                    local STBC = Instance.new("UICorner"); STBC.CornerRadius = UDim.new(1, 0); STBC.Parent = STBtn
+
+                    local scircle = Instance.new("Frame")
+                    scircle.Size = UDim2.new(0, 16, 0, 16)
+                    scircle.Position = sdefault and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+                    scircle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+                    scircle.ZIndex = 84
+                    scircle.Parent = STBtn
+                    local SCC = Instance.new("UICorner"); SCC.CornerRadius = UDim.new(1, 0); SCC.Parent = scircle
+
+                    local senabled = sdefault
+                    local SToggleObj = {
+                        Frame = STFrame,
+                        Set = function(val)
+                            senabled = val
+                            TweenService:Create(scircle, TweenInfo.new(0.2), {Position = senabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+                            TweenService:Create(STBtn, TweenInfo.new(0.2), {BackgroundColor3 = senabled and Themes.Accent or Color3.fromRGB(60,60,65)}):Play()
+                            pcall(scallback, senabled)
+                        end
+                    }
+                    STBtn.MouseButton1Click:Connect(function() SToggleObj.Set(not senabled) end)
+                    return SToggleObj
+                end
+
+                function SubGroupObj:Slider(stext, smin, smax, sdefault, scallback, sformatter)
+                    local SSFrame = CreateSubElementFrame()
+                    SSFrame.Size = UDim2.new(1, 0, 0, 50)
+                    
+                    local SSLab = Instance.new("TextLabel")
+                    SSLab.Text = stext
+                    SSLab.Size = UDim2.new(1, -10, 0, 20)
+                    SSLab.Position = UDim2.new(0, 10, 0, 5)
+                    SSLab.BackgroundTransparency = 1
+                    SSLab.Font = Enum.Font.GothamMedium
+                    SSLab.TextColor3 = Themes.Text
+                    SSLab.TextSize = 13
+                    SSLab.TextXAlignment = Enum.TextXAlignment.Left
+                    SSLab.ZIndex = 83
+                    SSLab.Parent = SSFrame
+
+                    local fmt = sformatter or function(v) return tostring(v) end
+                    local SValLab = Instance.new("TextLabel")
+                    SValLab.Text = fmt(sdefault)
+                    SValLab.Size = UDim2.new(0, 60, 0, 20)
+                    SValLab.Position = UDim2.new(1, -70, 0, 5)
+                    SValLab.BackgroundTransparency = 1
+                    SValLab.Font = Enum.Font.Gotham
+                    SValLab.TextColor3 = Themes.TextDim
+                    SValLab.TextSize = 12
+                    SValLab.TextXAlignment = Enum.TextXAlignment.Right
+                    SValLab.ZIndex = 83
+                    SValLab.Parent = SSFrame
+
+                    local STrack = Instance.new("TextButton")
+                    STrack.Text = ""
+                    STrack.Size = UDim2.new(1, -20, 0, 4)
+                    STrack.Position = UDim2.new(0, 10, 0, 35)
+                    STrack.BackgroundColor3 = Color3.fromRGB(50,50,55)
+                    STrack.ZIndex = 83
+                    STrack.Parent = SSFrame
+                    local STrC = Instance.new("UICorner"); STrC.CornerRadius = UDim.new(1, 0); STrC.Parent = STrack
+
+                    local SFill = Instance.new("Frame")
+                    SFill.Size = UDim2.new((sdefault - smin)/(smax - smin), 0, 1, 0)
+                    SFill.BackgroundColor3 = Themes.Accent
+                    SFill.ZIndex = 84
+                    SFill.Parent = STrack
+                    local SFC = Instance.new("UICorner"); SFC.CornerRadius = UDim.new(1, 0); SFC.Parent = SFill
+
+                    local sdragging = false
+                    local function supdate(input)
+                        local pos = input.Position.X
+                        local rect = STrack.AbsolutePosition.X
+                        local size = STrack.AbsoluteSize.X
+                        local percent = math.clamp((pos - rect) / size, 0, 1)
+                        local val = math.floor(smin + (smax - smin) * percent)
+                        SValLab.Text = fmt(val)
+                        SFill.Size = UDim2.new(percent, 0, 1, 0)
+                        pcall(scallback, val)
+                    end
+                    STrack.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sdragging = true; supdate(input) end
+                    end)
+                    UserInputService.InputChanged:Connect(function(input)
+                        if sdragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then supdate(input) end
+                    end)
+                    UserInputService.InputEnded:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sdragging = false end
+                    end)
+                    return SSFrame
+                end
+
+                return SubWindowFrame, SubGroupObj
+            end
+
+            function GroupObj:Toggle(text, default, callback, subConfigCallback)
                 local TFrame = CreateElementFrame()
+                local hasSub = type(subConfigCallback) == "function"
                 
                 local TLab = Instance.new("TextLabel")
                 TLab.Text = text
-                TLab.Size = UDim2.new(1, -60, 1, 0)
+                TLab.Size = hasSub and UDim2.new(1, -95, 1, 0) or UDim2.new(1, -60, 1, 0)
                 TLab.Position = UDim2.new(0, 10, 0, 0)
                 TLab.BackgroundTransparency = 1
                 TLab.Font = Enum.Font.GothamMedium
@@ -2313,14 +2531,57 @@ function VoidLib:CreateWindow()
                 circle.BackgroundColor3 = Color3.fromRGB(255,255,255)
                 circle.Parent = TBtn
                 local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(1, 0); CC.Parent = circle
-                
+
                 local enabled = default
+                local GearBtn = nil
+                local subWindowFrame = nil
+
+                if hasSub then
+                    GearBtn = Instance.new("ImageButton")
+                    GearBtn.Size = UDim2.new(0, 20, 0, 20)
+                    GearBtn.Position = UDim2.new(1, -78, 0.5, -10)
+                    GearBtn.BackgroundTransparency = 1
+                    GearBtn.Image = "rbxassetid://6031280882" -- Ícone de engrenagem
+                    GearBtn.ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(80, 80, 85)
+                    GearBtn.ImageTransparency = enabled and 0 or 0.6
+                    GearBtn.Parent = TFrame
+
+                    -- Criar o Hub Secundário (Sub-Hub)
+                    local subFrame, subGroupObj = CreateSubWindow("Configurações - " .. text)
+                    subWindowFrame = subFrame
+
+                    -- Executar callback para popular o Sub-Hub
+                    pcall(subConfigCallback, subGroupObj)
+
+                    -- Evento de clique na Engrenagem
+                    GearBtn.MouseButton1Click:Connect(function()
+                        if not enabled then return end -- Inativa quando o mod está desabilitado!
+                        
+                        subWindowFrame.Visible = not subWindowFrame.Visible
+                        if subWindowFrame.Visible then
+                            subWindowFrame.Size = UDim2.new(0, 360, 0, 0)
+                            subWindowFrame.BackgroundTransparency = 1
+                            TweenService:Create(subWindowFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 260), BackgroundTransparency = 0}):Play()
+                        end
+                    end)
+                end
+                
                 local ToggleObj = {
                     Frame = TFrame,
                     Set = function(val)
                         enabled = val
                         TweenService:Create(circle, TweenInfo.new(0.2), {Position = enabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
                         TweenService:Create(TBtn, TweenInfo.new(0.2), {BackgroundColor3 = enabled and Themes.Accent or Color3.fromRGB(60,60,65)}):Play()
+                        
+                        if GearBtn then
+                            TweenService:Create(GearBtn, TweenInfo.new(0.2), {
+                                ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(80, 80, 85),
+                                ImageTransparency = enabled and 0 or 0.6
+                            }):Play()
+                            if not enabled and subWindowFrame and subWindowFrame.Visible then
+                                subWindowFrame.Visible = false
+                            end
+                        end
                         pcall(callback, enabled)
                     end
                 }
@@ -2905,51 +3166,6 @@ do
 
 
     local AimbotGroup = Combat:Group("Aimbot Principal")
-    local aimbotDependents = {} -- Store dependent frames
-
-    local aimbotToggle = AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
-        AimbotCore:SetEnabled(v)
-        -- Toggle visibility of dependents
-        if v then
-            for _, frame in pairs(aimbotDependents) do
-                frame.Visible = true
-            end
-        else
-            for _, frame in pairs(aimbotDependents) do
-                frame.Visible = false
-            end
-        end
-    end)
-
-    local tCheckToggle = AimbotGroup:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
-        getgenv().TeamCheck = v
-    end)
-    table.insert(aimbotDependents, tCheckToggle.Frame)
-
-    local legitToggle = AimbotGroup:Toggle("Modo Legit", getgenv().LegitMode or false, function(v)
-        getgenv().LegitMode = v
-    end)
-    table.insert(aimbotDependents, legitToggle.Frame)
-    
-    local randomPartsToggle = AimbotGroup:Toggle("Humanizar (Random Parts)", getgenv().RandomParts or false, function(v)
-        getgenv().RandomParts = v
-    end)
-    table.insert(aimbotDependents, randomPartsToggle.Frame)
-    
-    local aimAssistToggle = AimbotGroup:Toggle("Modo Aim Assist (Suave)", getgenv().AimAssistMode or false, function(v)
-        getgenv().AimAssistMode = v
-    end)
-    table.insert(aimbotDependents, aimAssistToggle.Frame)
-    
-    local smoothSlider = AimbotGroup:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
-        getgenv().AimbotSmoothness = v -- 1 = Fast, 20 = Slow (Dividing factor)
-    end)
-    table.insert(aimbotDependents, smoothSlider)
-
-    local cursorToggle = AimbotGroup:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
-        AimbotCore:SetCursorAim(v)
-    end)
-    table.insert(aimbotDependents, cursorToggle.Frame)
 
     local function GetServerPlayers()
         local list = {}
@@ -2961,16 +3177,8 @@ do
         return list
     end
 
-    local ignoreList = AimbotGroup:InteractiveList("Ignorar Players", GetServerPlayers, function(name)
-        AimbotCore:IgnorePlayer(name)
-    end, function(name)
-        AimbotCore:UnignorePlayer(name)
-    end)
-    table.insert(aimbotDependents, ignoreList)
-
     local function GetTeamsList2()
         local list = {}
-        -- Safety check for Teams service
         local success, teams = pcall(function() return game:GetService("Teams"):GetTeams() end)
         if success and teams then
             for _, t in pairs(teams) do
@@ -2980,28 +3188,34 @@ do
         return list
     end
 
-    local ignoreTeamList = AimbotGroup:InteractiveList("Ignorar Time", GetTeamsList2, function(name)
-        AimbotCore:IgnoreTeam(name)
-    end, function(name)
-        AimbotCore:UnignoreTeam(name)
+    AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
+        AimbotCore:SetEnabled(v)
+    end, function(sub)
+        sub:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
+            getgenv().TeamCheck = v
+        end)
+        sub:Toggle("Modo Legit", getgenv().LegitMode or false, function(v)
+            getgenv().LegitMode = v
+        end)
+        sub:Toggle("Humanizar (Random Parts)", getgenv().RandomParts or false, function(v)
+            getgenv().RandomParts = v
+        end)
+        sub:Toggle("Modo Aim Assist (Suave)", getgenv().AimAssistMode or false, function(v)
+            getgenv().AimAssistMode = v
+        end)
+        sub:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
+            getgenv().AimbotSmoothness = v
+        end)
+        sub:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
+            AimbotCore:SetCursorAim(v)
+        end)
+        sub:Slider("Campo de Visão (FOV)", 20, 500, (AimbotCore:GetFOV() or 90), function(v)
+            AimbotCore:SetFOV(v)
+        end)
+        sub:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
+            getgenv().AimbotEasing = v / 10 
+        end)
     end)
-    table.insert(aimbotDependents, ignoreTeamList)
-
-    local fovS = AimbotGroup:Slider("Campo de Visão (FOV)", 20, 500, (AimbotCore:GetFOV() or 90), function(v)
-        AimbotCore:SetFOV(v)
-    end)
-    table.insert(aimbotDependents, fovS)
-
-    local easingS = AimbotGroup:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
-        getgenv().AimbotEasing = v / 10 
-    end)
-    table.insert(aimbotDependents, easingS)
-
-    -- Initialize visibility based on default state
-    local isAimbotEnabled = AimbotCore:IsEnabled()
-    for _, frame in pairs(aimbotDependents) do
-        frame.Visible = isAimbotEnabled
-    end
 
     pcall(function()
         local KillAuraGroup = Combat:Group("Kill Aura")
@@ -3056,148 +3270,76 @@ do
     local Visual = Win:Tab("Visual")
 
     local ESPGroup = Visual:Group("ESP Jogadores")
-    local espDependents = {} -- Store dependent frames for ESP
-
-    local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
+    ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
         ESPCore:SetEnabled(v)
-        -- Toggle visibility of dependents
-        if v then
-            task.wait(0.3) -- Wait for expansion animation
-            for _, frame in pairs(espDependents) do
-                frame.Visible = true
-            end
-        else
-            for _, frame in pairs(espDependents) do
-                frame.Visible = false
-            end
-        end
+    end, function(sub)
+        sub:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
+            getgenv().ESPNames = v
+        end)
+        sub:Toggle("Barra de Vida", (getgenv().ESPHealth or false), function(v)
+            getgenv().ESPHealth = v
+        end)
+        sub:Toggle("Linhas (Tracers)", (getgenv().ESPTracers or false), function(v)
+            getgenv().ESPTracers = v
+        end)
     end)
-
-    local nameToggle = ESPGroup:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
-        getgenv().ESPNames = v
-    end)
-    table.insert(espDependents, nameToggle.Frame)
-
-    local healthToggle = ESPGroup:Toggle("Barra de Vida", (getgenv().ESPHealth or false), function(v)
-        getgenv().ESPHealth = v
-    end)
-    table.insert(espDependents, healthToggle.Frame)
-
-    local tracerToggle = ESPGroup:Toggle("Linhas (Tracers)", (getgenv().ESPTracers or false), function(v)
-        getgenv().ESPTracers = v
-    end)
-    table.insert(espDependents, tracerToggle.Frame)
-
-    -- Initialize visibility based on default state
-    local isESPEnabled = ESPCore:IsEnabled()
-    for _, frame in pairs(espDependents) do
-        frame.Visible = isESPEnabled
-    end
 
     -- ============================================
     -- GRUPO: ALERTA DE AMEAÇA (HIGH ALERT)
     -- ============================================
     local AlertGroup = Visual:Group("Alerta de Ameaça (High Alert)")
-    local alertDependents = {}
-
-    local alertToggle = AlertGroup:Toggle("High Alert (Bordas)", HighAlertCore:IsEnabled(), function(v)
+    AlertGroup:Toggle("High Alert (Bordas)", HighAlertCore:IsEnabled(), function(v)
         HighAlertCore:SetEnabled(v)
-        if v then
-            task.wait(0.3)
-            for _, frame in pairs(alertDependents) do
-                frame.Visible = true
-            end
-        else
-            for _, frame in pairs(alertDependents) do
-                frame.Visible = false
-            end
-        end
+    end, function(sub)
+        sub:Toggle("Ignorar Aliados (Time)", HighAlertCore:IsTeamCheck(), function(v)
+            HighAlertCore:SetTeamCheck(v)
+        end)
+        sub:Toggle("Seta Direcional (Centro)", HighAlertCore:IsArrowEnabled(), function(v)
+            HighAlertCore:SetArrowEnabled(v)
+        end)
+        sub:Slider("Tamanho da Borda", 3, 50, HighAlertCore:GetBorderThickness(), function(v)
+            HighAlertCore:SetBorderThickness(v)
+        end)
+        sub:Slider("Distância da Seta", 30, 300, HighAlertCore:GetArrowRadius(), function(v)
+            HighAlertCore:SetArrowRadius(v)
+        end)
+        sub:Slider("Tamanho da Seta", 8, 50, HighAlertCore:GetArrowSize(), function(v)
+            HighAlertCore:SetArrowSize(v)
+        end)
     end)
-
-    local alertTeamToggle = AlertGroup:Toggle("Ignorar Aliados (Time)", HighAlertCore:IsTeamCheck(), function(v)
-        HighAlertCore:SetTeamCheck(v)
-    end)
-    table.insert(alertDependents, alertTeamToggle.Frame)
-
-    local alertThicknessSlider = AlertGroup:Slider("Tamanho da Borda", 3, 50, HighAlertCore:GetBorderThickness(), function(v)
-        HighAlertCore:SetBorderThickness(v)
-    end)
-    table.insert(alertDependents, alertThicknessSlider)
-
-    local alertArrowToggle = AlertGroup:Toggle("Seta Direcional (Centro)", HighAlertCore:IsArrowEnabled(), function(v)
-        HighAlertCore:SetArrowEnabled(v)
-    end)
-    table.insert(alertDependents, alertArrowToggle.Frame)
-
-    local alertArrowRadiusSlider = AlertGroup:Slider("Distância da Seta", 30, 300, HighAlertCore:GetArrowRadius(), function(v)
-        HighAlertCore:SetArrowRadius(v)
-    end)
-    table.insert(alertDependents, alertArrowRadiusSlider)
-
-    local alertArrowSizeSlider = AlertGroup:Slider("Tamanho da Seta", 8, 50, HighAlertCore:GetArrowSize(), function(v)
-        HighAlertCore:SetArrowSize(v)
-    end)
-    table.insert(alertDependents, alertArrowSizeSlider)
-
-    -- Initialize visibility based on default state
-    local isAlertEnabled = HighAlertCore:IsEnabled()
-    for _, frame in pairs(alertDependents) do
-        frame.Visible = isAlertEnabled
-    end
 
     local HeadGroup = Visual:Group("Cabeças (Headshot)")
-    local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
+    HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
         HeadESP:SetEnabled(v)
-    end)
-    HeadGroup:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
-        HeadESP:SetHeadSize(v)
+    end, function(sub)
+        sub:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
+            HeadESP:SetHeadSize(v)
+        end)
     end)
     
     -- ============================================
     -- GRUPO: MINIMAPA (RADAR)
     -- ============================================
     local MinimapGroup = Visual:Group("Minimapa (Radar)")
-    local minimapDependents = {}
-    
-    local minimapToggle = MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
+    MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
         MinimapCore:SetEnabled(v)
-        if v then
-            task.wait(0.3)
-            for _, frame in pairs(minimapDependents) do frame.Visible = true end
-        else
-            for _, frame in pairs(minimapDependents) do frame.Visible = false end
-        end
+    end, function(sub)
+        sub:Toggle("Formato Redondo", MinimapCore:IsRound(), function(v)
+            MinimapCore:SetRound(v)
+        end)
+        sub:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
+            MinimapCore:SetLocked(v)
+        end)
+        sub:Toggle("Mostrar Mapa (Terreno)", MinimapCore:IsTerrain(), function(v)
+            MinimapCore:SetTerrain(v)
+        end)
+        sub:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
+            MinimapCore:SetSize(v)
+        end)
+        sub:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
+            MinimapCore:SetZoom(v)
+        end)
     end)
-    
-    local minimapRoundToggle = MinimapGroup:Toggle("Formato Redondo", MinimapCore:IsRound(), function(v)
-        MinimapCore:SetRound(v)
-    end)
-    table.insert(minimapDependents, minimapRoundToggle.Frame)
-    
-    local minimapLockToggle = MinimapGroup:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
-        MinimapCore:SetLocked(v)
-    end)
-    table.insert(minimapDependents, minimapLockToggle.Frame)
-    
-    local minimapTerrainToggle = MinimapGroup:Toggle("Mostrar Mapa (Terreno)", MinimapCore:IsTerrain(), function(v)
-        MinimapCore:SetTerrain(v)
-    end)
-    table.insert(minimapDependents, minimapTerrainToggle.Frame)
-    
-    local minimapSizeSlider = MinimapGroup:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
-        MinimapCore:SetSize(v)
-    end)
-    table.insert(minimapDependents, minimapSizeSlider)
-    
-    local minimapZoomSlider = MinimapGroup:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
-        MinimapCore:SetZoom(v)
-    end)
-    table.insert(minimapDependents, minimapZoomSlider)
-    
-    local isMinimapEnabled = MinimapCore:IsEnabled()
-    for _, frame in pairs(minimapDependents) do
-        frame.Visible = isMinimapEnabled
-    end
     
 end -- End Visual Block
 
