@@ -2586,7 +2586,7 @@ function VoidLib:CreateWindow()
                         if sdragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then supdate(input) end
                     end)
                     UserInputService.InputEnded:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then sdragging = false end
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sdragging = false end
                     end)
                     return SSFrame
                 end
@@ -3416,8 +3416,8 @@ do
     MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
         MinimapCore:SetEnabled(v)
     end, function(sub)
-        sub:Toggle("Formato Redondo", MinimapCore:IsRound(), function(v)
-            MinimapCore:SetRound(v)
+        sub:ShapeSelector("Formato", MinimapCore:IsRound(), function(isRound)
+            MinimapCore:SetRound(isRound)
         end)
         sub:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
             MinimapCore:SetLocked(v)
