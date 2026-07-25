@@ -1367,6 +1367,7 @@ local MinimapCore = (function()
     local isTerrainEnabled = false
     local mapSize = 150
     local mapZoom = 250
+    local mapRender = 500 -- Raio de renderização de estruturas (chunks)
 
     local container = nil
     local mapFrame = nil
@@ -1379,6 +1380,7 @@ local MinimapCore = (function()
     local activeFrameCount = 0
     local isScanningMap = false
     local lastScanTime = 0
+    local lastScanPos = Vector3.new(0, 0, 0) -- Posição da última varredura
 
     local dragging = false
     local dragInput = nil
@@ -1409,44 +1411,110 @@ local MinimapCore = (function()
         end
     end
 
-    -- Varredura Global de Sólidos do Mapa em Background (Executa sem congelar nem apagar a tela)
-    local function ScanMapTerrain()
+    -- Classificação inteligente de estrutura vs. decoração
+    -- Retorna true apenas para partes que são paredes, chão, teto, obstáculos grandes
+    local IGNORE_CLASSNAMES = {
+        MeshPart = true, -- Geralmente modelos detalhados (roupas, objetos 3D)
+        UnionOperation = true, -- CSG unions (decoração complexa, não confiável como estrutura)
+    }
+    local STRUCTURE_NAMES = {
+        wall = true, parede = true, floor = true, chao = true, piso = true,
+        ceiling = true, teto = true, roof = true, telhado = true,
+        base = true, ground = true, platform = true, plataforma = true,
+        barrier = true, barreira = true, door = true, porta = true,
+        stair = true, escada = true, ramp = true, rampa = true,
+    }
+
+    local function isStructuralPart(part)
+        -- Ignorar personagens, ferramentas, acessórios, hats
+        local parent = part.Parent
+        if not parent then return false end
+        if parent:FindFirstChild("Humanoid") then return false end
+        if parent:IsA("Accessory") or parent:IsA("Tool") or parent:IsA("Hat") then return false end
+        -- Ignorar partes dentro de modelos de personagens (checagem 2 níveis)
+        local grandparent = parent.Parent
+        if grandparent then
+            if grandparent:FindFirstChild("Humanoid") then return false end
+            if grandparent:IsA("Accessory") or grandparent:IsA("Tool") or grandparent:IsA("Hat") then return false end
+        end
+
+        -- Invisíveis intangíveis
+        if part.Transparency >= 1 and not part.CanCollide then return false end
+
+        -- Tamanho mínimo: pelo menos 2 studs em X ou Z, e 0.5 de altura
+        local sx, sy, sz = part.Size.X, part.Size.Y, part.Size.Z
+        if (sx < 2 and sz < 2) then return false end
+        if sy < 0.5 then return false end
+        -- Tamanho máximo: evitar terreno gigante
+        if sx > 2048 or sz > 2048 then return false end
+
+        -- MeshParts geralmente são modelos detalhados EXCETO se forem grandes (paredes modulares)
+        -- Peças pequenas de MeshPart/Union são quase sempre decoração
+        if IGNORE_CLASSNAMES[part.ClassName] then
+            local footprint = sx * sz
+            -- Só aceita MeshParts/Unions grandes (>= 16 studs² de footprint = parede real)
+            if footprint < 16 then return false end
+        end
+
+        -- Nome heurístico: se o nome parece estrutural, aceitar sempre
+        local lowerName = string.lower(part.Name)
+        for keyword, _ in pairs(STRUCTURE_NAMES) do
+            if string.find(lowerName, keyword) then return true end
+        end
+
+        -- Peça ancorada com colisão e tamanho razoável = provavelmente estrutura
+        if part.CanCollide then return true end
+
+        -- Peça ancorada sem colisão mas grande = provavelmente chão/plataforma visual
+        if sx >= 4 or sz >= 4 then return true end
+
+        return false
+    end
+
+    -- Varredura de Sólidos do Mapa baseada em Render Distance (estilo Chunks)
+    -- Só cacheia parts dentro do raio de render ao redor do jogador
+    local function ScanMapTerrain(forcePos)
         if not isTerrainEnabled or isScanningMap then return end
         isScanningMap = true
+
+        local myChar = LocalPlayer.Character
+        local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Head"))
+        local scanCenter = forcePos or (myRoot and myRoot.Position) or Vector3.new(0, 0, 0)
+
+        local renderDist = mapRender
+        local renderDistSq = renderDist * renderDist
 
         local newCache = {}
         local count = 0
 
         for _, v in pairs(workspace:GetDescendants()) do
             count = count + 1
-            if count % 400 == 0 then task.wait() end
+            if count % 500 == 0 then task.wait() end
 
             if v:IsA("BasePart") and v.Anchored then
-                -- Ignorar intangíveis invisíveis (Transparency >= 1 E CanCollide == false)
-                if v.Transparency >= 1 and not v.CanCollide then
-                    continue
-                end
+                -- Filtro de distância (Render Chunks): só parts dentro do raio
+                local pos = v.Position
+                local dx = pos.X - scanCenter.X
+                local dz = pos.Z - scanCenter.Z
+                local distSq = dx * dx + dz * dz
+                if distSq > renderDistSq then continue end
 
-                -- Ignorar personagens, ferramentas e acessórios
-                if v.Parent and (v.Parent:FindFirstChild("Humanoid") or v.Parent:IsA("Accessory") or v.Parent:IsA("Tool")) then
-                    continue
-                end
+                -- Filtro inteligente de estrutura
+                if not isStructuralPart(v) then continue end
 
-                -- Filtrar tamanhos úteis (paredes, estruturas, obstáculos)
-                if (v.Size.X >= 2 or v.Size.Z >= 2) and v.Size.Y >= 0.5 and (v.Size.X < 500 and v.Size.Z < 500) then
-                    table.insert(newCache, {
-                        part = v,
-                        pos = v.Position,
-                        size = v.Size,
-                        right = v.CFrame.RightVector
-                    })
-                end
+                table.insert(newCache, {
+                    part = v,
+                    pos = pos,
+                    size = v.Size,
+                    right = v.CFrame.RightVector
+                })
             end
         end
 
         -- Troca atômica do cache em memória sem apagar a tela
         cachedMapParts = newCache
         lastScanTime = tick()
+        lastScanPos = scanCenter
         isScanningMap = false
     end
 
@@ -1622,9 +1690,23 @@ local MinimapCore = (function()
         local camRight = Vector3.new(-camLookFlat.Z, 0, camLookFlat.X)
         local mapScale = (mapSize / 2) / mapZoom
 
-        -- Re-scan do mapa em background a cada 45 segundos (ou se o cache estiver vazio)
+        -- Re-scan inteligente baseado em render distance:
+        -- 1) Cache vazio -> scan imediato
+        -- 2) Jogador andou mais de 30% do render -> re-scan incremental
+        -- 3) Timeout de 60 segundos como fallback
         if isTerrainEnabled then
-            if #cachedMapParts == 0 or (tick() - lastScanTime) > 45 then
+            local needsScan = false
+            if #cachedMapParts == 0 then
+                needsScan = true
+            elseif (tick() - lastScanTime) > 60 then
+                needsScan = true
+            else
+                local moveDist = (Vector3.new(myPos.X, 0, myPos.Z) - Vector3.new(lastScanPos.X, 0, lastScanPos.Z)).Magnitude
+                if moveDist > mapRender * 0.3 then
+                    needsScan = true
+                end
+            end
+            if needsScan then
                 task.spawn(ScanMapTerrain)
             end
         end
@@ -1834,6 +1916,19 @@ local MinimapCore = (function()
         return mapZoom
     end
 
+    function Minimap:SetRender(render)
+        mapRender = render
+        if getgenv then getgenv().MinimapRender = render end
+        -- Re-scan imediato ao alterar render distance
+        if isEnabled and isTerrainEnabled then
+            task.spawn(ScanMapTerrain)
+        end
+    end
+
+    function Minimap:GetRender()
+        return mapRender
+    end
+
     function Minimap:Destroy()
         if renderConnection then
             renderConnection:Disconnect()
@@ -1852,6 +1947,7 @@ local MinimapCore = (function()
         isLocked = (getgenv().MinimapLocked == nil) and false or getgenv().MinimapLocked
         isTerrainEnabled = (getgenv().MinimapTerrain == nil) and false or getgenv().MinimapTerrain
         mapZoom = getgenv().MinimapZoom or 250
+        mapRender = getgenv().MinimapRender or 500
         
         if getgenv().MinimapEnabled then
             Minimap:SetEnabled(true)
@@ -3430,6 +3526,9 @@ do
         end)
         sub:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
             MinimapCore:SetZoom(v)
+        end)
+        sub:Slider("Render", 100, 2000, MinimapCore:GetRender(), function(v)
+            MinimapCore:SetRender(v)
         end)
     end)
     
