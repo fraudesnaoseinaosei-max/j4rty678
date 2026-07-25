@@ -2335,9 +2335,9 @@ function VoidLib:CreateWindow()
 
                 -- Botão X Vermelho de Fechar
                 local CloseBtn = Instance.new("TextButton")
-                CloseBtn.Text = "✕"
+                CloseBtn.Text = "X"
                 CloseBtn.Font = Enum.Font.GothamBold
-                CloseBtn.TextSize = 13
+                CloseBtn.TextSize = 12
                 CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
                 CloseBtn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
                 CloseBtn.Size = UDim2.new(0, 24, 0, 24)
@@ -2384,6 +2384,98 @@ function VoidLib:CreateWindow()
                     SEFrame.Parent = SubContent
                     local SEC = Instance.new("UICorner"); SEC.CornerRadius = UDim.new(0, 6); SEC.Parent = SEFrame
                     return SEFrame
+                end
+
+                function SubGroupObj:ShapeSelector(stext, defaultIsRound, scallback)
+                    local SFrame = CreateSubElementFrame()
+                    local SLab = Instance.new("TextLabel")
+                    SLab.Text = stext
+                    SLab.Size = UDim2.new(1, -70, 1, 0)
+                    SLab.Position = UDim2.new(0, 10, 0, 0)
+                    SLab.BackgroundTransparency = 1
+                    SLab.Font = Enum.Font.GothamMedium
+                    SLab.TextColor3 = Themes.Text
+                    SLab.TextSize = 13
+                    SLab.TextXAlignment = Enum.TextXAlignment.Left
+                    SLab.ZIndex = 83
+                    SLab.Parent = SFrame
+
+                    local ButtonsFrame = Instance.new("Frame")
+                    ButtonsFrame.Size = UDim2.new(0, 54, 0, 24)
+                    ButtonsFrame.Position = UDim2.new(1, -64, 0.5, -12)
+                    ButtonsFrame.BackgroundTransparency = 1
+                    ButtonsFrame.ZIndex = 83
+                    ButtonsFrame.Parent = SFrame
+
+                    -- Botão Círculo
+                    local CircleBtn = Instance.new("TextButton")
+                    CircleBtn.Size = UDim2.new(0, 22, 0, 22)
+                    CircleBtn.Position = UDim2.new(0, 0, 0.5, -11)
+                    CircleBtn.Text = ""
+                    CircleBtn.ZIndex = 84
+                    CircleBtn.Parent = ButtonsFrame
+                    local CircleCorner = Instance.new("UICorner"); CircleCorner.CornerRadius = UDim.new(1, 0); CircleCorner.Parent = CircleBtn
+                    local CircleStroke = Instance.new("UIStroke"); CircleStroke.Thickness = 1.5; CircleStroke.Parent = CircleBtn
+
+                    local CircleInner = Instance.new("Frame")
+                    CircleInner.Size = UDim2.new(0, 8, 0, 8)
+                    CircleInner.Position = UDim2.new(0.5, -4, 0.5, -4)
+                    CircleInner.ZIndex = 85
+                    CircleInner.Parent = CircleBtn
+                    local InnerCorner = Instance.new("UICorner"); InnerCorner.CornerRadius = UDim.new(1, 0); InnerCorner.Parent = CircleInner
+
+                    -- Botão Quadrado
+                    local SquareBtn = Instance.new("TextButton")
+                    SquareBtn.Size = UDim2.new(0, 22, 0, 22)
+                    SquareBtn.Position = UDim2.new(0, 28, 0.5, -11)
+                    SquareBtn.Text = ""
+                    SquareBtn.ZIndex = 84
+                    SquareBtn.Parent = ButtonsFrame
+                    local SquareCorner = Instance.new("UICorner"); SquareCorner.CornerRadius = UDim.new(0, 4); SquareCorner.Parent = SquareBtn
+                    local SquareStroke = Instance.new("UIStroke"); SquareStroke.Thickness = 1.5; SquareStroke.Parent = SquareBtn
+
+                    local SquareInner = Instance.new("Frame")
+                    SquareInner.Size = UDim2.new(0, 8, 0, 8)
+                    SquareInner.Position = UDim2.new(0.5, -4, 0.5, -4)
+                    SquareInner.ZIndex = 85
+                    SquareInner.Parent = SquareBtn
+                    local SInnerCorner = Instance.new("UICorner"); SInnerCorner.CornerRadius = UDim.new(0, 2); SInnerCorner.Parent = SquareInner
+
+                    local isRoundState = defaultIsRound
+
+                    local function updateSelection(roundVal)
+                        isRoundState = roundVal
+                        if isRoundState then
+                            TweenService:Create(CircleBtn, TweenInfo.new(0.2), {BackgroundColor3 = Themes.Accent}):Play()
+                            CircleStroke.Color = Themes.Accent
+                            CircleInner.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+
+                            TweenService:Create(SquareBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 50)}):Play()
+                            SquareStroke.Color = Color3.fromRGB(70, 70, 75)
+                            SquareInner.BackgroundColor3 = Color3.fromRGB(100, 100, 105)
+                        else
+                            TweenService:Create(SquareBtn, TweenInfo.new(0.2), {BackgroundColor3 = Themes.Accent}):Play()
+                            SquareStroke.Color = Themes.Accent
+                            SquareInner.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+
+                            TweenService:Create(CircleBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 50)}):Play()
+                            CircleStroke.Color = Color3.fromRGB(70, 70, 75)
+                            CircleInner.BackgroundColor3 = Color3.fromRGB(100, 100, 105)
+                        end
+                        pcall(scallback, isRoundState)
+                    end
+
+                    CircleBtn.MouseButton1Click:Connect(function()
+                        if not isRoundState then updateSelection(true) end
+                    end)
+
+                    SquareBtn.MouseButton1Click:Connect(function()
+                        if isRoundState then updateSelection(false) end
+                    end)
+
+                    updateSelection(defaultIsRound)
+
+                    return SFrame
                 end
 
                 function SubGroupObj:Toggle(stext, sdefault, scallback)
@@ -2494,84 +2586,8 @@ function VoidLib:CreateWindow()
                         if sdragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then supdate(input) end
                     end)
                     UserInputService.InputEnded:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sdragging = false end
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then sdragging = false end
                     end)
-                function SubGroupObj:ShapeSelector(stext, isRoundDefault, scallback)
-                    local SSFrame = CreateSubElementFrame()
-                    
-                    local SSLab = Instance.new("TextLabel")
-                    SSLab.Text = stext
-                    SSLab.Size = UDim2.new(1, -75, 1, 0)
-                    SSLab.Position = UDim2.new(0, 10, 0, 0)
-                    SSLab.BackgroundTransparency = 1
-                    SSLab.Font = Enum.Font.GothamMedium
-                    SSLab.TextColor3 = Themes.Text
-                    SSLab.TextSize = 13
-                    SSLab.TextXAlignment = Enum.TextXAlignment.Left
-                    SSLab.ZIndex = 83
-                    SSLab.Parent = SSFrame
-
-                    local isRound = isRoundDefault
-
-                    -- Botão de Círculo ⭕
-                    local CircleBtn = Instance.new("TextButton")
-                    CircleBtn.Size = UDim2.new(0, 24, 0, 24)
-                    CircleBtn.Position = UDim2.new(1, -60, 0.5, -12)
-                    CircleBtn.BackgroundColor3 = isRound and Themes.Accent or Color3.fromRGB(50, 50, 55)
-                    CircleBtn.Text = ""
-                    CircleBtn.ZIndex = 83
-                    CircleBtn.Parent = SSFrame
-                    local CCorner = Instance.new("UICorner"); CCorner.CornerRadius = UDim.new(1, 0); CCorner.Parent = CircleBtn
-                    local CStroke = Instance.new("UIStroke"); CStroke.Color = isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 85); CStroke.Thickness = 1; CStroke.Parent = CircleBtn
-
-                    local CircleIcon = Instance.new("Frame")
-                    CircleIcon.Size = UDim2.new(0, 10, 0, 10)
-                    CircleIcon.Position = UDim2.new(0.5, -5, 0.5, -5)
-                    CircleIcon.BackgroundColor3 = isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 155)
-                    CircleIcon.ZIndex = 84
-                    CircleIcon.Parent = CircleBtn
-                    local CICorner = Instance.new("UICorner"); CICorner.CornerRadius = UDim.new(1, 0); CICorner.Parent = CircleIcon
-
-                    -- Botão de Quadrado 🔲
-                    local SquareBtn = Instance.new("TextButton")
-                    SquareBtn.Size = UDim2.new(0, 24, 0, 24)
-                    SquareBtn.Position = UDim2.new(1, -30, 0.5, -12)
-                    SquareBtn.BackgroundColor3 = not isRound and Themes.Accent or Color3.fromRGB(50, 50, 55)
-                    SquareBtn.Text = ""
-                    SquareBtn.ZIndex = 83
-                    SquareBtn.Parent = SSFrame
-                    local SCorner = Instance.new("UICorner"); SCorner.CornerRadius = UDim.new(0, 4); SCorner.Parent = SquareBtn
-                    local SStroke = Instance.new("UIStroke"); SStroke.Color = not isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 85); SStroke.Thickness = 1; SStroke.Parent = SquareBtn
-
-                    local SquareIcon = Instance.new("Frame")
-                    SquareIcon.Size = UDim2.new(0, 10, 0, 10)
-                    SquareIcon.Position = UDim2.new(0.5, -5, 0.5, -5)
-                    SquareIcon.BackgroundColor3 = not isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 155)
-                    SquareIcon.ZIndex = 84
-                    SquareIcon.Parent = SquareBtn
-                    local SICorner = Instance.new("UICorner"); SICorner.CornerRadius = UDim.new(0, 2); SICorner.Parent = SquareIcon
-
-                    local function updateShapes(roundState)
-                        isRound = roundState
-                        TweenService:Create(CircleBtn, TweenInfo.new(0.2), {BackgroundColor3 = isRound and Themes.Accent or Color3.fromRGB(50, 50, 55)}):Play()
-                        TweenService:Create(CStroke, TweenInfo.new(0.2), {Color = isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 85)}):Play()
-                        CircleIcon.BackgroundColor3 = isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 155)
-
-                        TweenService:Create(SquareBtn, TweenInfo.new(0.2), {BackgroundColor3 = not isRound and Themes.Accent or Color3.fromRGB(50, 50, 55)}):Play()
-                        TweenService:Create(SStroke, TweenInfo.new(0.2), {Color = not isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 85)}):Play()
-                        SquareIcon.BackgroundColor3 = not isRound and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 155)
-
-                        pcall(scallback, isRound)
-                    end
-
-                    CircleBtn.MouseButton1Click:Connect(function()
-                        if not isRound then updateShapes(true) end
-                    end)
-
-                    SquareBtn.MouseButton1Click:Connect(function()
-                        if isRound then updateShapes(false) end
-                    end)
-
                     return SSFrame
                 end
 
@@ -3400,8 +3416,8 @@ do
     MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
         MinimapCore:SetEnabled(v)
     end, function(sub)
-        sub:ShapeSelector("Formato", MinimapCore:IsRound(), function(isRound)
-            MinimapCore:SetRound(isRound)
+        sub:Toggle("Formato Redondo", MinimapCore:IsRound(), function(v)
+            MinimapCore:SetRound(v)
         end)
         sub:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
             MinimapCore:SetLocked(v)
