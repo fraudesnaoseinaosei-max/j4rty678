@@ -572,6 +572,19 @@ local KillAuraCore = (function()
         end
     end)
 
+    function KillAura:TeleportOnce()
+        local target = findNearestTarget()
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local targetRoot = target.Character.HumanoidRootPart
+                local newCFrame = targetRoot.CFrame * CFrame.new(0, 0, 4)
+                player.Character.HumanoidRootPart.CFrame = newCFrame
+                return target
+            end
+        end
+        return nil
+    end
+
     function KillAura:SetEnabled(enabled)
         isEnabled = enabled
         if getgenv then getgenv().KillAuraEnabled = enabled end
@@ -3141,13 +3154,16 @@ function VoidLib:CreateWindow()
                 return SubWindowFrame, SubGroupObj
             end
 
-            function GroupObj:Toggle(text, default, callback, subConfigCallback)
+            function GroupObj:Toggle(text, default, callback, subConfigCallback, extraBtnText, extraBtnCallback)
                 local TFrame = CreateElementFrame()
                 local hasSub = type(subConfigCallback) == "function"
+                local hasExtra = extraBtnText and type(extraBtnCallback) == "function"
                 
+                local rightOffset = 50
+                if hasSub then rightOffset = 78 end
+
                 local TLab = Instance.new("TextLabel")
                 TLab.Text = text
-                TLab.Size = hasSub and UDim2.new(1, -95, 1, 0) or UDim2.new(1, -60, 1, 0)
                 TLab.Position = UDim2.new(0, 10, 0, 0)
                 TLab.BackgroundTransparency = 1
                 TLab.Font = Enum.Font.GothamMedium
@@ -3155,6 +3171,28 @@ function VoidLib:CreateWindow()
                 TLab.TextSize = 13
                 TLab.TextXAlignment = Enum.TextXAlignment.Left
                 TLab.Parent = TFrame
+                
+                if hasExtra then
+                    local ExtraBtn = Instance.new("TextButton")
+                    ExtraBtn.Size = UDim2.new(0, 70, 0, 24)
+                    ExtraBtn.Position = UDim2.new(1, -(rightOffset + 78), 0.5, -12)
+                    ExtraBtn.BackgroundColor3 = Themes.Accent
+                    ExtraBtn.Text = extraBtnText
+                    ExtraBtn.Font = Enum.Font.GothamBold
+                    ExtraBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    ExtraBtn.TextSize = 11
+                    ExtraBtn.Parent = TFrame
+                    local EBC = Instance.new("UICorner"); EBC.CornerRadius = UDim.new(0, 6); EBC.Parent = ExtraBtn
+                    local EBS = Instance.new("UIStroke"); EBS.Color = Color3.fromRGB(255, 255, 255); EBS.Thickness = 1; EBS.Transparency = 0.8; EBS.Parent = ExtraBtn
+
+                    ExtraBtn.MouseButton1Click:Connect(function()
+                        pcall(extraBtnCallback)
+                    end)
+
+                    TLab.Size = UDim2.new(1, -(rightOffset + 88), 1, 0)
+                else
+                    TLab.Size = UDim2.new(1, -(rightOffset + 10), 1, 0)
+                end
                 
                 local TBtn = Instance.new("TextButton")
                 TBtn.Size = UDim2.new(0, 40, 0, 20)
@@ -3973,9 +4011,18 @@ do
     local TP = User:Group("TP")
 
     pcall(function()
-        -- Kill Aura dentro da aba TP
+        -- Kill Aura dentro da aba TP com botão Click TP
         local killAuraToggle = TP:Toggle("Tp player", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
             if KillAuraCore then KillAuraCore:SetEnabled(v) end
+        end, nil, "Click TP", function()
+            if KillAuraCore and KillAuraCore.TeleportOnce then
+                local res = KillAuraCore:TeleportOnce()
+                if res then
+                    game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text="Teleportado para: " .. (res.DisplayName or res.Name), Duration=2})
+                else
+                    game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text="Nenhum alvo encontrado para TP!", Duration=2})
+                end
+            end
         end)
         ConfigManager:Register("killAuraEnabled", killAuraToggle)
     
