@@ -3405,9 +3405,18 @@ do
         end)
     end)
 
+end -- End Combat Block
+
+-- >>> TAB: USER
+do
+    local User = Win:Tab("User")
+
+    -- >>> SUB-TAB: TP
+    local TP = User:Group("TP")
+
     pcall(function()
-        local KillAuraGroup = Combat:Group("Kill Aura")
-        local killAuraToggle = KillAuraGroup:Toggle("Kill Player(s)", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
+        -- Kill Aura dentro da aba TP
+        local killAuraToggle = TP:Toggle("Kill Player(s)", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
             if KillAuraCore then KillAuraCore:SetEnabled(v) end
         end)
     
@@ -3421,7 +3430,7 @@ do
             return list
         end
     
-        local TargetDrop = KillAuraGroup:Dropdown("Nome Kill (Alvo)", GetPlayersList(), "Todos", function(val)
+        local TargetDrop = TP:Dropdown("Nome Kill (Alvo)", GetPlayersList(), "Todos", function(val)
             if KillAuraCore then KillAuraCore:SetTargetMode(val) end
         end)
     
@@ -3444,14 +3453,14 @@ do
             return list
         end
     
-        local TeamDrop = KillAuraGroup:Dropdown("Time Kill", GetTeamsList(), "Nada", function(val)
+        local TeamDrop = TP:Dropdown("Time Kill", GetTeamsList(), "Nada", function(val)
             if KillAuraCore then KillAuraCore:SetTeamTarget(val) end
         end)
     
         game:GetService("Teams").ChildAdded:Connect(function() pcall(function() TeamDrop:Refresh(GetTeamsList()) end) end)
         game:GetService("Teams").ChildRemoved:Connect(function() pcall(function() TeamDrop:Refresh(GetTeamsList()) end) end)
     end)
-end -- End Combat Block
+end -- End User Block
 
 -- >>> TAB: VISUAL
 do
