@@ -2047,10 +2047,14 @@ local ConfigManager = {
                 end)
             end
         end
-        local json = HttpService:JSONEncode(data)
-        local encoded = EncodeData(json)
-        if writefile then
-            local success, err = pcall(writefile, FILE_PATH, encoded)
+        data["unlockKey"] = getgenv().UnlockMouseKey and getgenv().UnlockMouseKey.Name or "RightControl"
+
+        local successJson, jsonStr = pcall(function()
+            return HttpService:JSONEncode(data)
+        end)
+
+        if successJson and jsonStr and writefile then
+            local success, err = pcall(writefile, FILE_PATH, jsonStr)
             return success
         end
         return false
@@ -2061,19 +2065,26 @@ local ConfigManager = {
             local success, content = pcall(readfile, FILE_PATH)
             if success and content and #content > 0 then
                 local decodedData = nil
+                -- Tentar decodificar JSON direto
                 pcall(function()
-                    if content:sub(1,1) == "{" then
-                        decodedData = HttpService:JSONDecode(content)
-                    else
-                        decodedData = HttpService:JSONDecode(DecodeData(content))
-                    end
+                    decodedData = HttpService:JSONDecode(content)
                 end)
+                -- Fallback se for base64 legado
+                if not decodedData then
+                    pcall(function()
+                        decodedData = HttpService:JSONDecode(DecodeData(content))
+                    end)
+                end
+
                 if decodedData and type(decodedData) == "table" then
                     for key, val in pairs(decodedData) do
                         local control = self.Controls[key]
                         if control and control.Set then
                             pcall(function() control.Set(val) end)
                         end
+                    end
+                    if decodedData["unlockKey"] and Enum.KeyCode[decodedData["unlockKey"]] then
+                        getgenv().UnlockMouseKey = Enum.KeyCode[decodedData["unlockKey"]]
                     end
                     return true
                 end
