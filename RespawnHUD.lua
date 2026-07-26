@@ -222,8 +222,6 @@ local AimbotCore = (function()
 
     local ignoredPlayers = {} -- List of ignored player names
     local ignoredTeams = {} -- List of ignored team names
-    local ignoredPlayerMode = "Nenhum"
-    local ignoredTeamMode = "Nenhum"
 
     local function isTargetVisible(targetPart, character)
         local cameraPos = camera.CFrame.Position
@@ -285,22 +283,23 @@ local AimbotCore = (function()
                     local shouldTarget = true
                     if isSameTeam(targetPlayer) then shouldTarget = false end
 
-                    if ignoredPlayerMode == "Amigos" then
-                        if player:IsFriendsWith(targetPlayer.UserId) then shouldTarget = false end
-                    elseif ignoredPlayerMode ~= "Nenhum" then
-                        if targetPlayer.Name == ignoredPlayerMode or targetPlayer.DisplayName == ignoredPlayerMode then
-                            shouldTarget = false
-                        end
+                    -- Checar se é Amigo ignorado
+                    if ignoredPlayers["Amigos"] and player:IsFriendsWith(targetPlayer.UserId) then
+                        shouldTarget = false
                     end
 
-                    if ignoredTeamMode ~= "Nenhum" then
-                        if targetPlayer.Team and targetPlayer.Team.Name == ignoredTeamMode then
-                            shouldTarget = false
-                        end
+                    -- Checar se Jogador está na lista de exceção
+                    if ignoredPlayers[targetPlayer.Name] or (targetPlayer.DisplayName and ignoredPlayers[targetPlayer.DisplayName]) then
+                        shouldTarget = false
                     end
 
-                    if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then shouldTarget = false end
-                    if ignoredPlayers[targetPlayer.Name] then shouldTarget = false end
+                    -- Checar se Time está na lista de exceção
+                    if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then
+                        shouldTarget = false
+                    end
+                    if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then
+                        shouldTarget = false
+                    end
 
                     if shouldTarget and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") and targetPlayer.Character:FindFirstChild("Humanoid") then
                         if not isTargetInFOV(targetPlayer.Character.Head) then return end
@@ -336,10 +335,6 @@ local AimbotCore = (function()
     function AimbotCore:UnignorePlayer(name) ignoredPlayers[name] = nil end
     function AimbotCore:IgnoreTeam(name) ignoredTeams[name] = true end
     function AimbotCore:UnignoreTeam(name) ignoredTeams[name] = nil end
-    function AimbotCore:SetIgnoredPlayerMode(mode) ignoredPlayerMode = mode or "Nenhum" end
-    function AimbotCore:GetIgnoredPlayerMode() return ignoredPlayerMode end
-    function AimbotCore:SetIgnoredTeamMode(mode) ignoredTeamMode = mode or "Nenhum" end
-    function AimbotCore:GetIgnoredTeamMode() return ignoredTeamMode end
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
@@ -2814,6 +2809,207 @@ function VoidLib:CreateWindow()
                     return SubDropdownObj
                 end
 
+                function SubGroupObj:InteractiveList(stext, getOptionsFunc, onAdd, onRemove)
+                    local SIFrame = CreateSubElementFrame()
+                    SIFrame.Size = UDim2.new(1, 0, 0, 80)
+                    SIFrame.ClipsDescendants = true
+                    SIFrame.ZIndex = 83
+
+                    local SILab = Instance.new("TextLabel")
+                    SILab.Text = stext
+                    SILab.Size = UDim2.new(1, -10, 0, 20)
+                    SILab.Position = UDim2.new(0, 10, 0, 5)
+                    SILab.BackgroundTransparency = 1
+                    SILab.Font = Enum.Font.GothamMedium
+                    SILab.TextColor3 = Themes.Text
+                    SILab.TextSize = 13
+                    SILab.TextXAlignment = Enum.TextXAlignment.Left
+                    SILab.ZIndex = 84
+                    SILab.Parent = SIFrame
+
+                    local sSelectedPlayer = "Selecionar..."
+                    local SDropBtn = Instance.new("TextButton")
+                    SDropBtn.Size = UDim2.new(0.65, 0, 0, 25)
+                    SDropBtn.Position = UDim2.new(0, 10, 0, 25)
+                    SDropBtn.BackgroundColor3 = Color3.fromRGB(45,45,50)
+                    SDropBtn.Text = "   " .. sSelectedPlayer
+                    SDropBtn.Font = Enum.Font.Gotham
+                    SDropBtn.TextSize = 12
+                    SDropBtn.TextColor3 = Themes.TextDim
+                    SDropBtn.TextXAlignment = Enum.TextXAlignment.Left
+                    SDropBtn.ZIndex = 84
+                    SDropBtn.Parent = SIFrame
+                    local SDC = Instance.new("UICorner"); SDC.CornerRadius = UDim.new(0, 4); SDC.Parent = SDropBtn
+
+                    local SDropArrow = Instance.new("TextLabel")
+                    SDropArrow.Text = "v"
+                    SDropArrow.Size = UDim2.new(0, 20, 1, 0)
+                    SDropArrow.Position = UDim2.new(1, -20, 0, 0)
+                    SDropArrow.BackgroundTransparency = 1
+                    SDropArrow.TextColor3 = Themes.TextDim
+                    SDropArrow.Font = Enum.Font.GothamBold
+                    SDropArrow.ZIndex = 85
+                    SDropArrow.Parent = SDropBtn
+
+                    local SAddBtn = Instance.new("TextButton")
+                    SAddBtn.Size = UDim2.new(0.25, 0, 0, 25)
+                    SAddBtn.Position = UDim2.new(0.7, 5, 0, 25)
+                    SAddBtn.BackgroundColor3 = Themes.Accent
+                    SAddBtn.Text = "Add +"
+                    SAddBtn.Font = Enum.Font.GothamBold
+                    SAddBtn.TextSize = 12
+                    SAddBtn.TextColor3 = Themes.Text
+                    SAddBtn.ZIndex = 84
+                    SAddBtn.Parent = SIFrame
+                    local SAC = Instance.new("UICorner"); SAC.CornerRadius = UDim.new(0, 4); SAC.Parent = SAddBtn
+
+                    local SAddedList = Instance.new("ScrollingFrame")
+                    SAddedList.Size = UDim2.new(1, -20, 0, 0)
+                    SAddedList.Position = UDim2.new(0, 10, 0, 60)
+                    SAddedList.BackgroundTransparency = 1
+                    SAddedList.BorderSizePixel = 0
+                    SAddedList.ScrollBarThickness = 2
+                    SAddedList.ZIndex = 84
+                    SAddedList.Parent = SIFrame
+                    local SALL = Instance.new("UIListLayout"); SALL.Padding = UDim.new(0, 5); SALL.Parent = SAddedList; SALL.SortOrder = Enum.SortOrder.LayoutOrder
+
+                    local SDList = Instance.new("ScrollingFrame")
+                    SDList.Size = UDim2.new(0.65, 0, 0, 120)
+                    SDList.Position = UDim2.new(0, 10, 0, 55)
+                    SDList.BackgroundColor3 = Color3.fromRGB(40,40,45)
+                    SDList.Visible = false
+                    SDList.ZIndex = 90
+                    SDList.BorderSizePixel = 0
+                    SDList.Parent = SIFrame
+                    local SDLC = Instance.new("UICorner"); SDLC.CornerRadius = UDim.new(0, 4); SDLC.Parent = SDList
+                    local SDLL = Instance.new("UIListLayout"); SDLL.Parent = SDList; SDLL.SortOrder = Enum.SortOrder.LayoutOrder; SDLL.Padding = UDim.new(0, 2)
+                    local SDP = Instance.new("UIPadding"); SDP.PaddingLeft = UDim.new(0, 5); SDP.PaddingTop = UDim.new(0, 5); SDP.Parent = SDList
+
+                    local sAddedItems = {}
+                    local sIsDropdownOpen = false
+
+                    local function SUpdateSize()
+                        local listHeight = SALL.AbsoluteContentSize.Y
+                        SAddedList.CanvasSize = UDim2.new(0, 0, 0, listHeight)
+                        local displayListHeight = math.min(listHeight, 150)
+                        SAddedList.Size = UDim2.new(1, -20, 0, displayListHeight)
+                        
+                        local baseHeight = 60 + displayListHeight + 10
+                        if displayListHeight == 0 then baseHeight = 60 end
+                        
+                        if sIsDropdownOpen then
+                            local totalWithDropdown = 55 + 120 + 10
+                            if totalWithDropdown > baseHeight then
+                                baseHeight = totalWithDropdown
+                            end
+                        end
+                        TweenService:Create(SIFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, baseHeight)}):Play()
+                    end
+
+                    local function SRefreshAddedList()
+                        for _, c in pairs(SAddedList:GetChildren()) do if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end end
+                        if #sAddedItems == 0 then
+                            local Hint = Instance.new("TextLabel")
+                            Hint.Text = "Nenhum ignorado"
+                            Hint.Size = UDim2.new(1,0,0,20)
+                            Hint.BackgroundTransparency = 1
+                            Hint.TextColor3 = Themes.TextDim
+                            Hint.TextTransparency = 0.5
+                            Hint.Font = Enum.Font.Gotham
+                            Hint.TextSize = 12
+                            Hint.ZIndex = 85
+                            Hint.Parent = SAddedList
+                        else
+                            for _, item in pairs(sAddedItems) do
+                                local ItemFrame = Instance.new("Frame")
+                                ItemFrame.Size = UDim2.new(1, 0, 0, 24)
+                                ItemFrame.BackgroundColor3 = Color3.fromRGB(35,35,40)
+                                ItemFrame.ZIndex = 85
+                                ItemFrame.Parent = SAddedList
+                                local IC = Instance.new("UICorner"); IC.CornerRadius = UDim.new(0, 4); IC.Parent = ItemFrame
+
+                                local ItemLab = Instance.new("TextLabel")
+                                ItemLab.Text = "  " .. item
+                                ItemLab.Size = UDim2.new(0.8, 0, 1, 0)
+                                ItemLab.BackgroundTransparency = 1
+                                ItemLab.TextColor3 = Themes.TextDim
+                                ItemLab.Font = Enum.Font.Gotham
+                                ItemLab.TextSize = 12
+                                ItemLab.TextXAlignment = Enum.TextXAlignment.Left
+                                ItemLab.ZIndex = 86
+                                ItemLab.Parent = ItemFrame
+
+                                local DelBtn = Instance.new("TextButton")
+                                DelBtn.Text = "x"
+                                DelBtn.Size = UDim2.new(0, 24, 0, 24)
+                                DelBtn.Position = UDim2.new(1, -24, 0, 0)
+                                DelBtn.BackgroundTransparency = 1
+                                DelBtn.TextColor3 = Color3.fromRGB(200, 80, 80)
+                                DelBtn.Font = Enum.Font.GothamBold
+                                DelBtn.TextSize = 14
+                                DelBtn.ZIndex = 86
+                                DelBtn.Parent = ItemFrame
+
+                                DelBtn.MouseButton1Click:Connect(function()
+                                    table.remove(sAddedItems, table.find(sAddedItems, item))
+                                    pcall(onRemove, item)
+                                    SRefreshAddedList()
+                                end)
+                            end
+                        end
+                        SUpdateSize()
+                    end
+
+                    SDropBtn.MouseButton1Click:Connect(function()
+                        sIsDropdownOpen = not sIsDropdownOpen
+                        if sIsDropdownOpen then
+                            SDList.Visible = true
+                            SDropArrow.Rotation = 180
+                            for _, c in pairs(SDList:GetChildren()) do if c:IsA("TextButton") or c:IsA("TextLabel") then c:Destroy() end end
+                            local opts = getOptionsFunc()
+                            for _, opt in pairs(opts) do
+                                local B = Instance.new("TextButton")
+                                B.Size = UDim2.new(1, -10, 0, 20)
+                                B.Text = opt
+                                B.BackgroundTransparency = 1
+                                B.TextColor3 = Themes.TextDim
+                                B.Font = Enum.Font.Gotham
+                                B.TextSize = 12
+                                B.TextXAlignment = Enum.TextXAlignment.Left
+                                B.ZIndex = 91
+                                B.Parent = SDList
+
+                                B.MouseButton1Click:Connect(function()
+                                    sSelectedPlayer = opt
+                                    SDropBtn.Text = "   " .. opt
+                                    sIsDropdownOpen = false
+                                    SDList.Visible = false
+                                    SDropArrow.Rotation = 0
+                                    SUpdateSize()
+                                end)
+                            end
+                            SDList.CanvasSize = UDim2.new(0, 0, 0, SDLL.AbsoluteContentSize.Y + 10)
+                        else
+                            SDList.Visible = false
+                            SDropArrow.Rotation = 0
+                        end
+                        SUpdateSize()
+                    end)
+
+                    SAddBtn.MouseButton1Click:Connect(function()
+                        if sSelectedPlayer ~= "Selecionar..." and not table.find(sAddedItems, sSelectedPlayer) then
+                            table.insert(sAddedItems, sSelectedPlayer)
+                            pcall(onAdd, sSelectedPlayer)
+                            sSelectedPlayer = "Selecionar..."
+                            SDropBtn.Text = "   " .. sSelectedPlayer
+                            SRefreshAddedList()
+                        end
+                    end)
+
+                    SRefreshAddedList()
+                    return SIFrame
+                end
+
                 return SubWindowFrame, SubGroupObj
             end
 
@@ -3532,7 +3728,7 @@ do
         end)
 
         local function GetExPlayersList()
-            local list = {"Nenhum", "Amigos"}
+            local list = {"Amigos"}
             for _, p in pairs(game:GetService("Players"):GetPlayers()) do
                 if p ~= game:GetService("Players").LocalPlayer then
                     table.insert(list, p.Name)
@@ -3542,7 +3738,7 @@ do
         end
 
         local function GetExTeamsList()
-            local list = {"Nenhum"}
+            local list = {}
             pcall(function()
                 for _, t in pairs(game:GetService("Teams"):GetTeams()) do
                     table.insert(list, t.Name)
@@ -3551,27 +3747,21 @@ do
             return list
         end
 
-        local ExPlayerSubDrop = sub:Dropdown("Exceção Jogador", GetExPlayersList(), AimbotCore:GetIgnoredPlayerMode(), function(val)
-            AimbotCore:SetIgnoredPlayerMode(val)
-        end)
-        local ExTeamSubDrop = sub:Dropdown("Exceção Time", GetExTeamsList(), AimbotCore:GetIgnoredTeamMode(), function(val)
-            AimbotCore:SetIgnoredTeamMode(val)
+        sub:InteractiveList("Exceção Jogadores", GetExPlayersList, function(itemName)
+            AimbotCore:IgnorePlayer(itemName)
+        end, function(itemName)
+            AimbotCore:UnignorePlayer(itemName)
         end)
 
-        task.spawn(function()
-            while task.wait(5) do
-                pcall(function() ExPlayerSubDrop:Refresh(GetExPlayersList()) end)
-                pcall(function() ExTeamSubDrop:Refresh(GetExTeamsList()) end)
-            end
+        sub:InteractiveList("Exceção Times", GetExTeamsList, function(itemName)
+            AimbotCore:IgnoreTeam(itemName)
+        end, function(itemName)
+            AimbotCore:UnignoreTeam(itemName)
         end)
-        game:GetService("Players").PlayerAdded:Connect(function() pcall(function() ExPlayerSubDrop:Refresh(GetExPlayersList()) end) end)
-        game:GetService("Players").PlayerRemoving:Connect(function() pcall(function() ExPlayerSubDrop:Refresh(GetExPlayersList()) end) end)
-        game:GetService("Teams").ChildAdded:Connect(function() pcall(function() ExTeamSubDrop:Refresh(GetExTeamsList()) end) end)
-        game:GetService("Teams").ChildRemoved:Connect(function() pcall(function() ExTeamSubDrop:Refresh(GetExTeamsList()) end) end)
     end)
 
     local function GetExPlayersListMain()
-        local list = {"Nenhum", "Amigos"}
+        local list = {"Amigos"}
         for _, p in pairs(game:GetService("Players"):GetPlayers()) do
             if p ~= game:GetService("Players").LocalPlayer then
                 table.insert(list, p.Name)
@@ -3581,7 +3771,7 @@ do
     end
 
     local function GetExTeamsListMain()
-        local list = {"Nenhum"}
+        local list = {}
         pcall(function()
             for _, t in pairs(game:GetService("Teams"):GetTeams()) do
                 table.insert(list, t.Name)
@@ -3591,23 +3781,17 @@ do
     end
 
     local AimbotExGroup = Combat:Group("Exceção (Aimbot)")
-    local ExPlayerDrop = AimbotExGroup:Dropdown("Exceção Jogador", GetExPlayersListMain(), AimbotCore:GetIgnoredPlayerMode(), function(val)
-        AimbotCore:SetIgnoredPlayerMode(val)
-    end)
-    local ExTeamDrop = AimbotExGroup:Dropdown("Exceção Time", GetExTeamsListMain(), AimbotCore:GetIgnoredTeamMode(), function(val)
-        AimbotCore:SetIgnoredTeamMode(val)
+    AimbotExGroup:InteractiveList("Exceção Jogadores", GetExPlayersListMain, function(itemName)
+        AimbotCore:IgnorePlayer(itemName)
+    end, function(itemName)
+        AimbotCore:UnignorePlayer(itemName)
     end)
 
-    task.spawn(function()
-        while task.wait(5) do
-            pcall(function() ExPlayerDrop:Refresh(GetExPlayersListMain()) end)
-            pcall(function() ExTeamDrop:Refresh(GetExTeamsListMain()) end)
-        end
+    AimbotExGroup:InteractiveList("Exceção Times", GetExTeamsListMain, function(itemName)
+        AimbotCore:IgnoreTeam(itemName)
+    end, function(itemName)
+        AimbotCore:UnignoreTeam(itemName)
     end)
-    game:GetService("Players").PlayerAdded:Connect(function() pcall(function() ExPlayerDrop:Refresh(GetExPlayersListMain()) end) end)
-    game:GetService("Players").PlayerRemoving:Connect(function() pcall(function() ExPlayerDrop:Refresh(GetExPlayersListMain()) end) end)
-    game:GetService("Teams").ChildAdded:Connect(function() pcall(function() ExTeamDrop:Refresh(GetExTeamsListMain()) end) end)
-    game:GetService("Teams").ChildRemoved:Connect(function() pcall(function() ExTeamDrop:Refresh(GetExTeamsListMain()) end) end)
 
 end -- End Combat Block
 
