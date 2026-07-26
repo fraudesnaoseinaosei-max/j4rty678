@@ -2136,14 +2136,14 @@ function VoidLib:CreateWindow()
     local UIS = game:GetService("UserInputService")
     local isMobile = UIS.TouchEnabled
 
-    -- >>> SPLASH INTRO GIF OVERLAY
+    -- >>> SPLASH INTRO ANIMATION OVERLAY (PNG SPRITESHEET)
     task.spawn(function()
         local getasset = getcustomasset or getsynasset or customasset
         if not getasset then return end
 
-        local targetPath = "DreeZyHub/intro.gif"
-        local githubUrl = "https://raw.githubusercontent.com/fraudesnaoseinaosei-max/j4rty678/main/intro.gif"
-        local localSourcePath = "C:\\Users\\Ekon\\Downloads\\asciicraft_1785097522740.gif"
+        local targetPath = "DreeZyHub/intro_spritesheet.png"
+        local githubUrl = "https://raw.githubusercontent.com/fraudesnaoseinaosei-max/j4rty678/main/intro_spritesheet.png"
+        local localSourcePath = "C:\\Users\\Ekon\\Desktop\\Nuvem-Projetos\\DreezHub\\intro_spritesheet.png"
 
         pcall(function()
             if isfolder and makefolder and not isfolder("DreeZyHub") then
@@ -2153,12 +2153,12 @@ function VoidLib:CreateWindow()
             local fileExists = isfile and isfile(targetPath)
             if not fileExists then
                 local downloadedData = nil
-                -- 1. Baixar diretamente do GitHub Raw URL (funciona para qualquer pessoa executando online!)
+                -- 1. Baixar Spritesheet PNG diretamente do GitHub Raw (funciona online para todos!)
                 pcall(function()
                     downloadedData = game:HttpGet(githubUrl)
                 end)
 
-                -- 2. Fallback para caminho local se HttpGet falhar
+                -- 2. Fallback para arquivo local se HttpGet falhar
                 if (not downloadedData or #downloadedData == 0) and readfile then
                     pcall(function()
                         downloadedData = readfile(localSourcePath)
@@ -2172,15 +2172,11 @@ function VoidLib:CreateWindow()
         end)
 
         local assetId = nil
-        -- Tentativas resilientes de getcustomasset
         if isfile and isfile(targetPath) then
             pcall(function() assetId = getasset(targetPath) end)
         end
         if not assetId and isfile and isfile(localSourcePath) then
             pcall(function() assetId = getasset(localSourcePath) end)
-        end
-        if not assetId then
-            pcall(function() assetId = getasset("DreeZyHub\\intro.gif") end)
         end
 
         if assetId then
@@ -2194,42 +2190,51 @@ function VoidLib:CreateWindow()
             IntroOverlay.Parent = ScreenGui
 
             local IntroImg = Instance.new("ImageLabel")
-            IntroImg.Name = "IntroGif"
-            IntroImg.Size = UDim2.new(0, 410, 0, 735)
-            IntroImg.Position = UDim2.new(0.5, -205, 0.5, -367)
+            IntroImg.Name = "IntroSprite"
+            IntroImg.Size = UDim2.new(0, 205, 0, 367)
+            IntroImg.Position = UDim2.new(0.5, -102, 0.5, -183)
             IntroImg.BackgroundTransparency = 1
             IntroImg.Image = tostring(assetId)
+            IntroImg.ImageRectSize = Vector2.new(205, 367)
+            IntroImg.ImageRectOffset = Vector2.new(0, 0)
             IntroImg.ScaleType = Enum.ScaleType.Fit
             IntroImg.ZIndex = 10000001
             IntroImg.Parent = IntroOverlay
 
-            -- Tocar 1 vez (duração de 4.0 segundos) e fazer fade-out suave
-            task.delay(4.0, function()
-                if IntroOverlay and IntroOverlay.Parent then
-                    local t1 = TweenService:Create(IntroOverlay, TweenInfo.new(0.6), {BackgroundTransparency = 1})
-                    local t2 = TweenService:Create(IntroImg, TweenInfo.new(0.6), {ImageTransparency = 1})
-                    t1:Play()
-                    t2:Play()
-                    t1.Completed:Connect(function()
-                        IntroOverlay:Destroy()
-                    end)
+            -- Animação precisa dos 51 quadros do gatinho ASCII (1 ciclo único)
+            local totalFrames = 51
+            local cols = 8
+            local frameWidth = 205
+            local frameHeight = 367
+            local frameDelay = 0.08 -- 80ms por quadro
+
+            local isSkipped = false
+            local conn
+            conn = IntroOverlay.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    isSkipped = true
                 end
             end)
 
-            -- Clique em qualquer lugar para pular a intro antecipadamente
-            IntroOverlay.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    if IntroOverlay and IntroOverlay.Parent then
-                        local t1 = TweenService:Create(IntroOverlay, TweenInfo.new(0.3), {BackgroundTransparency = 1})
-                        local t2 = TweenService:Create(IntroImg, TweenInfo.new(0.3), {ImageTransparency = 1})
-                        t1:Play()
-                        t2:Play()
-                        t1.Completed:Connect(function()
-                            IntroOverlay:Destroy()
-                        end)
-                    end
-                end
-            end)
+            for idx = 0, totalFrames - 1 do
+                if isSkipped or not IntroOverlay or not IntroOverlay.Parent then break end
+                local col = idx % cols
+                local row = math.floor(idx / cols)
+                IntroImg.ImageRectOffset = Vector2.new(col * frameWidth, row * frameHeight)
+                task.wait(frameDelay)
+            end
+
+            -- Fade-out suave ao finalizar a animação
+            if IntroOverlay and IntroOverlay.Parent then
+                if conn then conn:Disconnect() end
+                local t1 = TweenService:Create(IntroOverlay, TweenInfo.new(0.5), {BackgroundTransparency = 1})
+                local t2 = TweenService:Create(IntroImg, TweenInfo.new(0.5), {ImageTransparency = 1})
+                t1:Play()
+                t2:Play()
+                t1.Completed:Connect(function()
+                    IntroOverlay:Destroy()
+                end)
+            end
         end
     end)
     
