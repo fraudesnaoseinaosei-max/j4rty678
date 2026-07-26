@@ -3242,8 +3242,8 @@ function VoidLib:CreateWindow()
                     GearBtn.Position = UDim2.new(1, -78, 0.5, -10)
                     GearBtn.BackgroundTransparency = 1
                     GearBtn.Image = "rbxassetid://6031280882" -- Ícone de engrenagem
-                    GearBtn.ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(80, 80, 85)
-                    GearBtn.ImageTransparency = enabled and 0 or 0.6
+                    GearBtn.ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(150, 150, 160)
+                    GearBtn.ImageTransparency = enabled and 0 or 0.3
                     GearBtn.Parent = TFrame
 
                     -- Criar o Hub Secundário (Sub-Hub)
@@ -3253,10 +3253,8 @@ function VoidLib:CreateWindow()
                     -- Executar callback para popular o Sub-Hub
                     pcall(subConfigCallback, subGroupObj)
 
-                    -- Evento de clique na Engrenagem
+                    -- Evento de clique na Engrenagem (Sempre acessível!)
                     GearBtn.MouseButton1Click:Connect(function()
-                        if not enabled then return end -- Inativa quando o mod está desabilitado!
-                        
                         subWindowFrame.Visible = not subWindowFrame.Visible
                         if subWindowFrame.Visible then
                             subWindowFrame.Size = UDim2.new(0, 360, 0, 0)
@@ -3276,12 +3274,9 @@ function VoidLib:CreateWindow()
                         
                         if GearBtn then
                             TweenService:Create(GearBtn, TweenInfo.new(0.2), {
-                                ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(80, 80, 85),
-                                ImageTransparency = enabled and 0 or 0.6
+                                ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(150, 150, 160),
+                                ImageTransparency = enabled and 0 or 0.3
                             }):Play()
-                            if not enabled and subWindowFrame and subWindowFrame.Visible then
-                                subWindowFrame.Visible = false
-                            end
                         end
                         pcall(callback, enabled)
                     end
