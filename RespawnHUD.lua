@@ -467,6 +467,17 @@ local KillAuraCore = (function()
     local isEnabled = false
     local targetMode = "Todos" -- "Todos", "Amigos", "PlayerName"
     local teamTargetMode = "Nada" -- "Nada" or TeamName
+    local tpPositionMode = "Em Cima" -- "Em Cima" (padrão), "Atrás", "Dentro"
+
+    local function getCFrameOffset()
+        if tpPositionMode == "Atrás" then
+            return CFrame.new(0, 0, 4)
+        elseif tpPositionMode == "Dentro" then
+            return CFrame.new(0, 0, 0)
+        else -- "Em Cima" (Padrão)
+            return CFrame.new(0, 4.5, 0)
+        end
+    end
 
     local function isSameTeam(targetPlayer)
         -- TeamCheck only applies to "Todos" mode usually, or if explicitly requested.
@@ -551,11 +562,10 @@ local KillAuraCore = (function()
         end
 
         -- Teleport execution
-        -- Teleport execution
         if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart") then
             if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                 local targetRoot = currentTarget.Character.HumanoidRootPart
-                local newCFrame = targetRoot.CFrame * CFrame.new(0, 0, 4)
+                local newCFrame = targetRoot.CFrame * getCFrameOffset()
                 player.Character.HumanoidRootPart.CFrame = newCFrame
             end
         end
@@ -577,7 +587,7 @@ local KillAuraCore = (function()
         if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
             if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                 local targetRoot = target.Character.HumanoidRootPart
-                local newCFrame = targetRoot.CFrame * CFrame.new(0, 0, 4)
+                local newCFrame = targetRoot.CFrame * getCFrameOffset()
                 player.Character.HumanoidRootPart.CFrame = newCFrame
                 return target
             end
@@ -596,6 +606,12 @@ local KillAuraCore = (function()
     function KillAura:SetTeamTarget(teamName)
         teamTargetMode = teamName or "Nada"
         currentTarget = nil
+    end
+    function KillAura:SetPositionMode(posMode)
+        tpPositionMode = posMode or "Em Cima"
+    end
+    function KillAura:GetPositionMode()
+        return tpPositionMode
     end
     function KillAura:IsEnabled() return isEnabled end
     if getgenv then isEnabled = getgenv().KillAuraEnabled or false else isEnabled = false end
@@ -2946,6 +2962,13 @@ function VoidLib:CreateWindow()
                         end
                     end)
 
+                    SubDropdownObj.Get = function() return scurrentOption end
+                    SubDropdownObj.Set = function(val)
+                        scurrentOption = val
+                        SDropBtn.Text = "   " .. tostring(val)
+                        pcall(scallback, val)
+                    end
+
                     SubDropdownObj:Refresh(soptions)
                     return SubDropdownObj
                 end
@@ -4011,10 +4034,15 @@ do
     local TP = User:Group("TP")
 
     pcall(function()
-        -- Kill Aura dentro da aba TP com botão Click TP
+        -- Kill Aura dentro da aba TP com Engrenagem (Sub-Hub) e botão Click TP
         local killAuraToggle = TP:Toggle("Tp player", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
             if KillAuraCore then KillAuraCore:SetEnabled(v) end
-        end, nil, "Click TP", function()
+        end, function(sub)
+            local posDrop = sub:Dropdown("Posição do TP", {"Em Cima", "Atrás", "Dentro"}, (KillAuraCore and KillAuraCore:GetPositionMode()) or "Em Cima", function(val)
+                if KillAuraCore then KillAuraCore:SetPositionMode(val) end
+            end)
+            ConfigManager:Register("tpPositionMode", posDrop)
+        end, "Click TP", function()
             if KillAuraCore and KillAuraCore.TeleportOnce then
                 local res = KillAuraCore:TeleportOnce()
                 if res then
