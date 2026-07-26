@@ -2135,6 +2135,83 @@ function VoidLib:CreateWindow()
     
     local UIS = game:GetService("UserInputService")
     local isMobile = UIS.TouchEnabled
+
+    -- >>> SPLASH INTRO GIF OVERLAY
+    task.spawn(function()
+        local getasset = getcustomasset or getsynasset or customasset
+        if not getasset then return end
+
+        local targetPath = "DreeZyHub/intro.gif"
+        local sourcePath = "C:\\Users\\Ekon\\Downloads\\asciicraft_1785097522740.gif"
+
+        pcall(function()
+            if isfolder and makefolder and not isfolder("DreeZyHub") then
+                makefolder("DreeZyHub")
+            end
+            if isfile and not isfile(targetPath) and readfile and writefile then
+                local data = readfile(sourcePath)
+                if data and #data > 0 then
+                    writefile(targetPath, data)
+                end
+            end
+        end)
+
+        local finalPath = (isfile and isfile(targetPath)) and targetPath or sourcePath
+        local assetId = nil
+        pcall(function() assetId = getasset(finalPath) end)
+        if not assetId then
+            pcall(function() assetId = getasset(targetPath) end)
+        end
+
+        if assetId then
+            local IntroOverlay = Instance.new("Frame")
+            IntroOverlay.Name = "SplashIntroOverlay"
+            IntroOverlay.Size = UDim2.new(1, 0, 1, 0)
+            IntroOverlay.Position = UDim2.new(0, 0, 0, 0)
+            IntroOverlay.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+            IntroOverlay.BackgroundTransparency = 0
+            IntroOverlay.ZIndex = 10000000 -- Sobre tudo!
+            IntroOverlay.Parent = ScreenGui
+
+            local IntroImg = Instance.new("ImageLabel")
+            IntroImg.Name = "IntroGif"
+            IntroImg.Size = UDim2.new(0, 410, 0, 735)
+            IntroImg.Position = UDim2.new(0.5, -205, 0.5, -367)
+            IntroImg.BackgroundTransparency = 1
+            IntroImg.Image = assetId
+            IntroImg.ScaleType = Enum.ScaleType.Fit
+            IntroImg.ZIndex = 10000001
+            IntroImg.Parent = IntroOverlay
+
+            -- Tocar 1 vez (duração de 3.5 segundos) e fazer fade-out suave
+            task.delay(3.5, function()
+                if IntroOverlay and IntroOverlay.Parent then
+                    local t1 = TweenService:Create(IntroOverlay, TweenInfo.new(0.6), {BackgroundTransparency = 1})
+                    local t2 = TweenService:Create(IntroImg, TweenInfo.new(0.6), {ImageTransparency = 1})
+                    t1:Play()
+                    t2:Play()
+                    t1.Completed:Connect(function()
+                        IntroOverlay:Destroy()
+                    end)
+                end
+            end)
+
+            -- Clique em qualquer lugar para pular a intro antecipadamente
+            IntroOverlay.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    if IntroOverlay and IntroOverlay.Parent then
+                        local t1 = TweenService:Create(IntroOverlay, TweenInfo.new(0.3), {BackgroundTransparency = 1})
+                        local t2 = TweenService:Create(IntroImg, TweenInfo.new(0.3), {ImageTransparency = 1})
+                        t1:Play()
+                        t2:Play()
+                        t1.Completed:Connect(function()
+                            IntroOverlay:Destroy()
+                        end)
+                    end
+                end
+            end)
+        end
+    end)
     
     -- Mobile Draggable Helper
     local function MakeDraggable(obj)
