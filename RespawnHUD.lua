@@ -3952,6 +3952,17 @@ do
         AimbotCore:UnignoreTeam(itemName)
     end)
 
+    local HeadGroup = Combat:Group("Cabeças (Headshot)")
+    local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
+        HeadESP:SetEnabled(v)
+    end, function(sub)
+        local headSizeSlider = sub:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
+            HeadESP:SetHeadSize(v)
+        end)
+        ConfigManager:Register("headSize", headSizeSlider)
+    end)
+    ConfigManager:Register("headEnabled", headToggle)
+
 end -- End Combat Block
 
 -- >>> TAB: USER
@@ -4068,17 +4079,6 @@ do
         ConfigManager:Register("highAlertArrowSize", alertSizeSlider)
     end)
     ConfigManager:Register("highAlertEnabled", alertToggle)
-
-    local HeadGroup = Visual:Group("Cabeças (Headshot)")
-    local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
-        HeadESP:SetEnabled(v)
-    end, function(sub)
-        local headSizeSlider = sub:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
-            HeadESP:SetHeadSize(v)
-        end)
-        ConfigManager:Register("headSize", headSizeSlider)
-    end)
-    ConfigManager:Register("headEnabled", headToggle)
     
     -- ============================================
     -- GRUPO: MINIMAPA (RADAR)
