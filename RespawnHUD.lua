@@ -2172,11 +2172,15 @@ function VoidLib:CreateWindow()
         end)
 
         local assetId = nil
+        -- Tentativas resilientes de getcustomasset
         if isfile and isfile(targetPath) then
             pcall(function() assetId = getasset(targetPath) end)
         end
-        if not assetId then
+        if not assetId and isfile and isfile(localSourcePath) then
             pcall(function() assetId = getasset(localSourcePath) end)
+        end
+        if not assetId then
+            pcall(function() assetId = getasset("DreeZyHub\\intro.gif") end)
         end
 
         if assetId then
@@ -2194,13 +2198,13 @@ function VoidLib:CreateWindow()
             IntroImg.Size = UDim2.new(0, 410, 0, 735)
             IntroImg.Position = UDim2.new(0.5, -205, 0.5, -367)
             IntroImg.BackgroundTransparency = 1
-            IntroImg.Image = assetId
+            IntroImg.Image = tostring(assetId)
             IntroImg.ScaleType = Enum.ScaleType.Fit
             IntroImg.ZIndex = 10000001
             IntroImg.Parent = IntroOverlay
 
-            -- Tocar 1 vez (duração de 3.5 segundos) e fazer fade-out suave
-            task.delay(3.5, function()
+            -- Tocar 1 vez (duração de 4.0 segundos) e fazer fade-out suave
+            task.delay(4.0, function()
                 if IntroOverlay and IntroOverlay.Parent then
                     local t1 = TweenService:Create(IntroOverlay, TweenInfo.new(0.6), {BackgroundTransparency = 1})
                     local t2 = TweenService:Create(IntroImg, TweenInfo.new(0.6), {ImageTransparency = 1})
