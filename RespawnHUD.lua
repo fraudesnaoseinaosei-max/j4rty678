@@ -4298,10 +4298,5 @@ do
     InfoGroup:Button("Criado por DreeZy", function() setclipboard("DreeZy") end)
 end -- End Settings Block
 
--- Auto Load Configs on Execution
-pcall(function()
-    ConfigManager:Load()
-end)
-
 Notify("DreeZy Voidware V2 Carregado!")
 Notify("Use [Right Shift] para abrir/fechar o Menu!")
