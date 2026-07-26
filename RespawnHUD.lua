@@ -222,6 +222,8 @@ local AimbotCore = (function()
 
     local ignoredPlayers = {} -- List of ignored player names
     local ignoredTeams = {} -- List of ignored team names
+    local ignoredPlayerMode = "Nenhum"
+    local ignoredTeamMode = "Nenhum"
 
     local function isTargetVisible(targetPart, character)
         local cameraPos = camera.CFrame.Position
@@ -282,6 +284,21 @@ local AimbotCore = (function()
                 pcall(function()
                     local shouldTarget = true
                     if isSameTeam(targetPlayer) then shouldTarget = false end
+
+                    if ignoredPlayerMode == "Amigos" then
+                        if player:IsFriendsWith(targetPlayer.UserId) then shouldTarget = false end
+                    elseif ignoredPlayerMode ~= "Nenhum" then
+                        if targetPlayer.Name == ignoredPlayerMode or targetPlayer.DisplayName == ignoredPlayerMode then
+                            shouldTarget = false
+                        end
+                    end
+
+                    if ignoredTeamMode ~= "Nenhum" then
+                        if targetPlayer.Team and targetPlayer.Team.Name == ignoredTeamMode then
+                            shouldTarget = false
+                        end
+                    end
+
                     if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then shouldTarget = false end
                     if ignoredPlayers[targetPlayer.Name] then shouldTarget = false end
 
@@ -319,6 +336,10 @@ local AimbotCore = (function()
     function AimbotCore:UnignorePlayer(name) ignoredPlayers[name] = nil end
     function AimbotCore:IgnoreTeam(name) ignoredTeams[name] = true end
     function AimbotCore:UnignoreTeam(name) ignoredTeams[name] = nil end
+    function AimbotCore:SetIgnoredPlayerMode(mode) ignoredPlayerMode = mode or "Nenhum" end
+    function AimbotCore:GetIgnoredPlayerMode() return ignoredPlayerMode end
+    function AimbotCore:SetIgnoredTeamMode(mode) ignoredTeamMode = mode or "Nenhum" end
+    function AimbotCore:GetIgnoredTeamMode() return ignoredTeamMode end
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
@@ -2687,6 +2708,112 @@ function VoidLib:CreateWindow()
                     return SSFrame
                 end
 
+                function SubGroupObj:Dropdown(stext, soptions, sdefault, scallback)
+                    local SDFrame = CreateSubElementFrame()
+                    SDFrame.Size = UDim2.new(1, 0, 0, 50)
+                    SDFrame.ClipsDescendants = true
+                    SDFrame.ZIndex = 83
+
+                    local SDLab = Instance.new("TextLabel")
+                    SDLab.Text = stext
+                    SDLab.Size = UDim2.new(1, -10, 0, 20)
+                    SDLab.Position = UDim2.new(0, 10, 0, 5)
+                    SDLab.BackgroundTransparency = 1
+                    SDLab.Font = Enum.Font.GothamMedium
+                    SDLab.TextColor3 = Themes.Text
+                    SDLab.TextSize = 13
+                    SDLab.TextXAlignment = Enum.TextXAlignment.Left
+                    SDLab.ZIndex = 84
+                    SDLab.Parent = SDFrame
+
+                    local scurrentOption = sdefault or soptions[1] or "..."
+
+                    local SDropBtn = Instance.new("TextButton")
+                    SDropBtn.Size = UDim2.new(1, -20, 0, 20)
+                    SDropBtn.Position = UDim2.new(0, 10, 0, 25)
+                    SDropBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+                    SDropBtn.Text = "   " .. tostring(scurrentOption)
+                    SDropBtn.Font = Enum.Font.Gotham
+                    SDropBtn.TextSize = 12
+                    SDropBtn.TextColor3 = Themes.TextDim
+                    SDropBtn.TextXAlignment = Enum.TextXAlignment.Left
+                    SDropBtn.ZIndex = 84
+                    SDropBtn.Parent = SDFrame
+                    local SDC = Instance.new("UICorner"); SDC.CornerRadius = UDim.new(0, 4); SDC.Parent = SDropBtn
+
+                    local SArrow = Instance.new("TextLabel")
+                    SArrow.Text = "v"
+                    SArrow.Size = UDim2.new(0, 20, 1, 0)
+                    SArrow.Position = UDim2.new(1, -20, 0, 0)
+                    SArrow.BackgroundTransparency = 1
+                    SArrow.TextColor3 = Themes.TextDim
+                    SArrow.Font = Enum.Font.GothamBold
+                    SArrow.ZIndex = 85
+                    SArrow.Parent = SDropBtn
+
+                    local SListFrame = Instance.new("ScrollingFrame")
+                    SListFrame.Size = UDim2.new(1, -20, 0, 100)
+                    SListFrame.Position = UDim2.new(0, 10, 0, 55)
+                    SListFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+                    SListFrame.BorderSizePixel = 0
+                    SListFrame.ScrollBarThickness = 2
+                    SListFrame.Visible = false
+                    SListFrame.ZIndex = 86
+                    SListFrame.Parent = SDFrame
+                    local SLC = Instance.new("UICorner"); SLC.CornerRadius = UDim.new(0, 4); SLC.Parent = SListFrame
+                    local SLPad = Instance.new("UIPadding"); SLPad.PaddingTop = UDim.new(0, 5); SLPad.PaddingLeft = UDim.new(0, 5); SLPad.Parent = SListFrame
+                    local SLLayout = Instance.new("UIListLayout"); SLLayout.Padding = UDim.new(0, 2); SLLayout.SortOrder = Enum.SortOrder.LayoutOrder; SLLayout.Parent = SListFrame
+
+                    local sIsOpen = false
+                    local SubDropdownObj = {}
+
+                    function SubDropdownObj:Refresh(snewOptions)
+                        soptions = snewOptions
+                        for _, child in pairs(SListFrame:GetChildren()) do
+                            if child:IsA("TextButton") then child:Destroy() end
+                        end
+                        for _, opt in pairs(soptions) do
+                            local OptBtn = Instance.new("TextButton")
+                            OptBtn.Size = UDim2.new(1, -10, 0, 20)
+                            OptBtn.BackgroundTransparency = 1
+                            OptBtn.Text = tostring(opt)
+                            OptBtn.TextColor3 = Themes.TextDim
+                            OptBtn.Font = Enum.Font.Gotham
+                            OptBtn.TextSize = 12
+                            OptBtn.TextXAlignment = Enum.TextXAlignment.Left
+                            OptBtn.ZIndex = 87
+                            OptBtn.Parent = SListFrame
+
+                            OptBtn.MouseButton1Click:Connect(function()
+                                scurrentOption = opt
+                                SDropBtn.Text = "   " .. tostring(opt)
+                                pcall(scallback, opt)
+                                sIsOpen = false
+                                SListFrame.Visible = false
+                                TweenService:Create(SArrow, TweenInfo.new(0.2), {Rotation = 0}):Play()
+                                TweenService:Create(SDFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 50)}):Play()
+                            end)
+                        end
+                        SListFrame.CanvasSize = UDim2.new(0, 0, 0, SLLayout.AbsoluteContentSize.Y + 10)
+                    end
+
+                    SDropBtn.MouseButton1Click:Connect(function()
+                        sIsOpen = not sIsOpen
+                        if sIsOpen then
+                            SListFrame.Visible = true
+                            TweenService:Create(SArrow, TweenInfo.new(0.2), {Rotation = 180}):Play()
+                            TweenService:Create(SDFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 160)}):Play()
+                        else
+                            SListFrame.Visible = false
+                            TweenService:Create(SArrow, TweenInfo.new(0.2), {Rotation = 0}):Play()
+                            TweenService:Create(SDFrame, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 0, 50)}):Play()
+                        end
+                    end)
+
+                    SubDropdownObj:Refresh(soptions)
+                    return SubDropdownObj
+                end
+
                 return SubWindowFrame, SubGroupObj
             end
 
@@ -3403,7 +3530,84 @@ do
         sub:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
             getgenv().AimbotEasing = v / 10 
         end)
+
+        local function GetExPlayersList()
+            local list = {"Nenhum", "Amigos"}
+            for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+                if p ~= game:GetService("Players").LocalPlayer then
+                    table.insert(list, p.Name)
+                end
+            end
+            return list
+        end
+
+        local function GetExTeamsList()
+            local list = {"Nenhum"}
+            pcall(function()
+                for _, t in pairs(game:GetService("Teams"):GetTeams()) do
+                    table.insert(list, t.Name)
+                end
+            end)
+            return list
+        end
+
+        local ExPlayerSubDrop = sub:Dropdown("Exceção Jogador", GetExPlayersList(), AimbotCore:GetIgnoredPlayerMode(), function(val)
+            AimbotCore:SetIgnoredPlayerMode(val)
+        end)
+        local ExTeamSubDrop = sub:Dropdown("Exceção Time", GetExTeamsList(), AimbotCore:GetIgnoredTeamMode(), function(val)
+            AimbotCore:SetIgnoredTeamMode(val)
+        end)
+
+        task.spawn(function()
+            while task.wait(5) do
+                pcall(function() ExPlayerSubDrop:Refresh(GetExPlayersList()) end)
+                pcall(function() ExTeamSubDrop:Refresh(GetExTeamsList()) end)
+            end
+        end)
+        game:GetService("Players").PlayerAdded:Connect(function() pcall(function() ExPlayerSubDrop:Refresh(GetExPlayersList()) end) end)
+        game:GetService("Players").PlayerRemoving:Connect(function() pcall(function() ExPlayerSubDrop:Refresh(GetExPlayersList()) end) end)
+        game:GetService("Teams").ChildAdded:Connect(function() pcall(function() ExTeamSubDrop:Refresh(GetExTeamsList()) end) end)
+        game:GetService("Teams").ChildRemoved:Connect(function() pcall(function() ExTeamSubDrop:Refresh(GetExTeamsList()) end) end)
     end)
+
+    local function GetExPlayersListMain()
+        local list = {"Nenhum", "Amigos"}
+        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+            if p ~= game:GetService("Players").LocalPlayer then
+                table.insert(list, p.Name)
+            end
+        end
+        return list
+    end
+
+    local function GetExTeamsListMain()
+        local list = {"Nenhum"}
+        pcall(function()
+            for _, t in pairs(game:GetService("Teams"):GetTeams()) do
+                table.insert(list, t.Name)
+            end
+        end)
+        return list
+    end
+
+    local AimbotExGroup = Combat:Group("Exceção (Aimbot)")
+    local ExPlayerDrop = AimbotExGroup:Dropdown("Exceção Jogador", GetExPlayersListMain(), AimbotCore:GetIgnoredPlayerMode(), function(val)
+        AimbotCore:SetIgnoredPlayerMode(val)
+    end)
+    local ExTeamDrop = AimbotExGroup:Dropdown("Exceção Time", GetExTeamsListMain(), AimbotCore:GetIgnoredTeamMode(), function(val)
+        AimbotCore:SetIgnoredTeamMode(val)
+    end)
+
+    task.spawn(function()
+        while task.wait(5) do
+            pcall(function() ExPlayerDrop:Refresh(GetExPlayersListMain()) end)
+            pcall(function() ExTeamDrop:Refresh(GetExTeamsListMain()) end)
+        end
+    end)
+    game:GetService("Players").PlayerAdded:Connect(function() pcall(function() ExPlayerDrop:Refresh(GetExPlayersListMain()) end) end)
+    game:GetService("Players").PlayerRemoving:Connect(function() pcall(function() ExPlayerDrop:Refresh(GetExPlayersListMain()) end) end)
+    game:GetService("Teams").ChildAdded:Connect(function() pcall(function() ExTeamDrop:Refresh(GetExTeamsListMain()) end) end)
+    game:GetService("Teams").ChildRemoved:Connect(function() pcall(function() ExTeamDrop:Refresh(GetExTeamsListMain()) end) end)
 
 end -- End Combat Block
 
@@ -3416,7 +3620,7 @@ do
 
     pcall(function()
         -- Kill Aura dentro da aba TP
-        local killAuraToggle = TP:Toggle("Kill Player(s)", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
+        local killAuraToggle = TP:Toggle("Tp player", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
             if KillAuraCore then KillAuraCore:SetEnabled(v) end
         end)
     
@@ -3430,7 +3634,7 @@ do
             return list
         end
     
-        local TargetDrop = TP:Dropdown("Nome Kill (Alvo)", GetPlayersList(), "Todos", function(val)
+        local TargetDrop = TP:Dropdown("Alvo", GetPlayersList(), "Todos", function(val)
             if KillAuraCore then KillAuraCore:SetTargetMode(val) end
         end)
     
@@ -3453,7 +3657,7 @@ do
             return list
         end
     
-        local TeamDrop = TP:Dropdown("Time Kill", GetTeamsList(), "Nada", function(val)
+        local TeamDrop = TP:Dropdown("TP Time", GetTeamsList(), "Nada", function(val)
             if KillAuraCore then KillAuraCore:SetTeamTarget(val) end
         end)
     
