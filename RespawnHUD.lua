@@ -1987,6 +1987,102 @@ local Themes = {
     GroupDB = Color3.fromRGB(25, 25, 30)
 }
 
+local HttpService = game:GetService("HttpService")
+local FOLDER_NAME = "DreeZyHub"
+local FILE_PATH = FOLDER_NAME .. "/Config.json"
+
+local function EnsureFolder()
+    if isfolder and makefolder then
+        pcall(function()
+            if not isfolder(FOLDER_NAME) then
+                makefolder(FOLDER_NAME)
+            end
+        end)
+    end
+end
+
+local function EncodeData(str)
+    local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    return ((str:gsub('.', function(x)
+        local r,b='',x:byte()
+        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+        return r
+    end)..'0000'):gsub('%d%d%d?%d?%d?', function(x)
+        if (#x < 6) then return '' end
+        local c=0
+        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+        return b64:sub(c+1,c+1)
+    end)..({ '', '==', '=' })[#str % 3 + 1])
+end
+
+local function DecodeData(data)
+    local b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    data = string.gsub(data, '[^'..b64..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,b='',b64:find(x)-1
+        for i=6,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+        return r
+    end):gsub('%d%d%d%d%d%d%d%d', function(x)
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end
+
+local ConfigManager = {
+    Controls = {},
+    Register = function(self, key, controlObj)
+        if controlObj then
+            self.Controls[key] = controlObj
+        end
+    end,
+    Save = function(self)
+        EnsureFolder()
+        local data = {}
+        for key, control in pairs(self.Controls) do
+            if control and control.Get then
+                pcall(function()
+                    data[key] = control.Get()
+                end)
+            end
+        end
+        local json = HttpService:JSONEncode(data)
+        local encoded = EncodeData(json)
+        if writefile then
+            local success, err = pcall(writefile, FILE_PATH, encoded)
+            return success
+        end
+        return false
+    end,
+    Load = function(self)
+        EnsureFolder()
+        if isfile and isfile(FILE_PATH) then
+            local success, content = pcall(readfile, FILE_PATH)
+            if success and content and #content > 0 then
+                local decodedData = nil
+                pcall(function()
+                    if content:sub(1,1) == "{" then
+                        decodedData = HttpService:JSONDecode(content)
+                    else
+                        decodedData = HttpService:JSONDecode(DecodeData(content))
+                    end
+                end)
+                if decodedData and type(decodedData) == "table" then
+                    for key, val in pairs(decodedData) do
+                        local control = self.Controls[key]
+                        if control and control.Set then
+                            pcall(function() control.Set(val) end)
+                        end
+                    end
+                    return true
+                end
+            end
+        end
+        return false
+    end
+}
+
 function VoidLib:CreateWindow()
     if game:GetService("CoreGui"):FindFirstChild("DreeZyVoidware") then game:GetService("CoreGui").DreeZyVoidware:Destroy() end
 
@@ -2587,7 +2683,12 @@ function VoidLib:CreateWindow()
 
                     updateSelection(defaultIsRound)
 
-                    return SFrame
+                    local SShapeObj = {
+                        Frame = SFrame,
+                        Get = function() return isRoundState end,
+                        Set = function(val) updateSelection(val) end
+                    }
+                    return SShapeObj
                 end
 
                 function SubGroupObj:Toggle(stext, sdefault, scallback)
@@ -2624,6 +2725,7 @@ function VoidLib:CreateWindow()
                     local senabled = sdefault
                     local SToggleObj = {
                         Frame = STFrame,
+                        Get = function() return senabled end,
                         Set = function(val)
                             senabled = val
                             TweenService:Create(scircle, TweenInfo.new(0.2), {Position = senabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
@@ -2680,6 +2782,7 @@ function VoidLib:CreateWindow()
                     SFill.Parent = STrack
                     local SFC = Instance.new("UICorner"); SFC.CornerRadius = UDim.new(1, 0); SFC.Parent = SFill
 
+                    local sCurrentVal = sdefault
                     local sdragging = false
                     local function supdate(input)
                         local pos = input.Position.X
@@ -2687,6 +2790,7 @@ function VoidLib:CreateWindow()
                         local size = STrack.AbsoluteSize.X
                         local percent = math.clamp((pos - rect) / size, 0, 1)
                         local val = math.floor(smin + (smax - smin) * percent)
+                        sCurrentVal = val
                         SValLab.Text = fmt(val)
                         SFill.Size = UDim2.new(percent, 0, 1, 0)
                         pcall(scallback, val)
@@ -2700,7 +2804,20 @@ function VoidLib:CreateWindow()
                     UserInputService.InputEnded:Connect(function(input)
                         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then sdragging = false end
                     end)
-                    return SSFrame
+
+                    local SSliderObj = {
+                        Frame = SSFrame,
+                        Get = function() return sCurrentVal end,
+                        Set = function(val)
+                            val = math.clamp(val, smin, smax)
+                            sCurrentVal = val
+                            local percent = (val - smin) / (smax - smin)
+                            SValLab.Text = fmt(val)
+                            SFill.Size = UDim2.new(percent, 0, 1, 0)
+                            pcall(scallback, val)
+                        end
+                    }
+                    return SSliderObj
                 end
 
                 function SubGroupObj:Dropdown(stext, soptions, sdefault, scallback)
@@ -3079,6 +3196,7 @@ function VoidLib:CreateWindow()
                 
                 local ToggleObj = {
                     Frame = TFrame,
+                    Get = function() return enabled end,
                     Set = function(val)
                         enabled = val
                         TweenService:Create(circle, TweenInfo.new(0.2), {Position = enabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
@@ -3145,6 +3263,7 @@ function VoidLib:CreateWindow()
                 Fill.Parent = Track
                 local FC = Instance.new("UICorner"); FC.CornerRadius = UDim.new(1, 0); FC.Parent = Fill
                 
+                local currentVal = default
                 local dragging = false
                 local function update(input)
                     local pos = input.Position.X
@@ -3152,6 +3271,7 @@ function VoidLib:CreateWindow()
                     local size = Track.AbsoluteSize.X
                     local percent = math.clamp((pos - rect) / size, 0, 1)
                     local val = math.floor(min + (max - min) * percent)
+                    currentVal = val
                     ValLab.Text = formatter(val)
                     Fill.Size = UDim2.new(percent, 0, 1, 0)
                     pcall(callback, val)
@@ -3173,7 +3293,20 @@ function VoidLib:CreateWindow()
                         dragging = false 
                     end
                 end)
-                return SFrame
+
+                local SliderObj = {
+                    Frame = SFrame,
+                    Get = function() return currentVal end,
+                    Set = function(val)
+                        val = math.clamp(val, min, max)
+                        currentVal = val
+                        local percent = (val - min) / (max - min)
+                        ValLab.Text = formatter(val)
+                        Fill.Size = UDim2.new(percent, 0, 1, 0)
+                        pcall(callback, val)
+                    end
+                }
+                return SliderObj
             end
             
             function GroupObj:Button(text, callback)
@@ -3699,33 +3832,48 @@ do
         return list
     end
 
-    AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
+    local aimbotToggle = AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
         AimbotCore:SetEnabled(v)
     end, function(sub)
-        sub:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
+        local teamCheckToggle = sub:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
             getgenv().TeamCheck = v
         end)
-        sub:Toggle("Modo Legit", getgenv().LegitMode or false, function(v)
+        ConfigManager:Register("aimbotTeamCheck", teamCheckToggle)
+
+        local legitToggle = sub:Toggle("Modo Legit", getgenv().LegitMode or false, function(v)
             getgenv().LegitMode = v
         end)
-        sub:Toggle("Humanizar (Random Parts)", getgenv().RandomParts or false, function(v)
+        ConfigManager:Register("aimbotLegit", legitToggle)
+
+        local randomPartsToggle = sub:Toggle("Humanizar (Random Parts)", getgenv().RandomParts or false, function(v)
             getgenv().RandomParts = v
         end)
-        sub:Toggle("Modo Aim Assist (Suave)", getgenv().AimAssistMode or false, function(v)
+        ConfigManager:Register("aimbotRandomParts", randomPartsToggle)
+
+        local aimAssistToggle = sub:Toggle("Modo Aim Assist (Suave)", getgenv().AimAssistMode or false, function(v)
             getgenv().AimAssistMode = v
         end)
-        sub:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
+        ConfigManager:Register("aimbotAimAssist", aimAssistToggle)
+
+        local smoothnessSlider = sub:Slider("Suavidade (Assist)", 1, 20, 10, function(v)
             getgenv().AimbotSmoothness = v
         end)
-        sub:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
+        ConfigManager:Register("aimbotSmoothness", smoothnessSlider)
+
+        local cursorAimToggle = sub:Toggle("Cursor Aim", AimbotCore:IsCursorAim(), function(v)
             AimbotCore:SetCursorAim(v)
         end)
-        sub:Slider("Campo de Visão (FOV)", 20, 500, (AimbotCore:GetFOV() or 90), function(v)
+        ConfigManager:Register("aimbotCursorAim", cursorAimToggle)
+
+        local fovSlider = sub:Slider("Campo de Visão (FOV)", 20, 500, (AimbotCore:GetFOV() or 90), function(v)
             AimbotCore:SetFOV(v)
         end)
-        sub:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
+        ConfigManager:Register("aimbotFOV", fovSlider)
+
+        local easingSlider = sub:Slider("Suavização (Easing)", 1, 10, math.floor((getgenv().AimbotEasing or 1) * 10), function(v)
             getgenv().AimbotEasing = v / 10 
         end)
+        ConfigManager:Register("aimbotEasing", easingSlider)
 
         local function GetExPlayersList()
             local list = {"Amigos"}
@@ -3759,6 +3907,7 @@ do
             AimbotCore:UnignoreTeam(itemName)
         end)
     end)
+    ConfigManager:Register("aimbotEnabled", aimbotToggle)
 
     local function GetExPlayersListMain()
         local list = {"Amigos"}
@@ -3806,6 +3955,7 @@ do
         local killAuraToggle = TP:Toggle("Tp player", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
             if KillAuraCore then KillAuraCore:SetEnabled(v) end
         end)
+        ConfigManager:Register("killAuraEnabled", killAuraToggle)
     
         local function GetPlayersList()
             local list = {"Todos", "Amigos"}
@@ -3854,79 +4004,109 @@ do
     local Visual = Win:Tab("Visual")
 
     local ESPGroup = Visual:Group("ESP Jogadores")
-    ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
+    local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
         ESPCore:SetEnabled(v)
     end, function(sub)
-        sub:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
+        local espNamesToggle = sub:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
             getgenv().ESPNames = v
         end)
-        sub:Toggle("Barra de Vida", (getgenv().ESPHealth or false), function(v)
+        ConfigManager:Register("espNames", espNamesToggle)
+
+        local espHealthToggle = sub:Toggle("Barra de Vida", (getgenv().ESPHealth or false), function(v)
             getgenv().ESPHealth = v
         end)
-        sub:Toggle("Linhas (Tracers)", (getgenv().ESPTracers or false), function(v)
+        ConfigManager:Register("espHealth", espHealthToggle)
+
+        local espTracersToggle = sub:Toggle("Linhas (Tracers)", (getgenv().ESPTracers or false), function(v)
             getgenv().ESPTracers = v
         end)
+        ConfigManager:Register("espTracers", espTracersToggle)
     end)
+    ConfigManager:Register("espEnabled", espToggle)
 
     -- ============================================
     -- GRUPO: ALERTA DE AMEAÇA (HIGH ALERT)
     -- ============================================
     local AlertGroup = Visual:Group("Alerta de Ameaça (High Alert)")
-    AlertGroup:Toggle("High Alert (Bordas)", HighAlertCore:IsEnabled(), function(v)
+    local alertToggle = AlertGroup:Toggle("High Alert (Bordas)", HighAlertCore:IsEnabled(), function(v)
         HighAlertCore:SetEnabled(v)
     end, function(sub)
-        sub:Toggle("Ignorar Aliados (Time)", HighAlertCore:IsTeamCheck(), function(v)
+        local alertTeamToggle = sub:Toggle("Ignorar Aliados (Time)", HighAlertCore:IsTeamCheck(), function(v)
             HighAlertCore:SetTeamCheck(v)
         end)
-        sub:Toggle("Seta Direcional (Centro)", HighAlertCore:IsArrowEnabled(), function(v)
+        ConfigManager:Register("highAlertTeamCheck", alertTeamToggle)
+
+        local alertArrowToggle = sub:Toggle("Seta Direcional (Centro)", HighAlertCore:IsArrowEnabled(), function(v)
             HighAlertCore:SetArrowEnabled(v)
         end)
-        sub:Slider("Tamanho da Borda", 3, 50, HighAlertCore:GetBorderThickness(), function(v)
+        ConfigManager:Register("highAlertArrow", alertArrowToggle)
+
+        local alertThicknessSlider = sub:Slider("Tamanho da Borda", 3, 50, HighAlertCore:GetBorderThickness(), function(v)
             HighAlertCore:SetBorderThickness(v)
         end)
-        sub:Slider("Distância da Seta", 30, 300, HighAlertCore:GetArrowRadius(), function(v)
+        ConfigManager:Register("highAlertThickness", alertThicknessSlider)
+
+        local alertRadiusSlider = sub:Slider("Distância da Seta", 30, 300, HighAlertCore:GetArrowRadius(), function(v)
             HighAlertCore:SetArrowRadius(v)
         end)
-        sub:Slider("Tamanho da Seta", 8, 50, HighAlertCore:GetArrowSize(), function(v)
+        ConfigManager:Register("highAlertArrowRadius", alertRadiusSlider)
+
+        local alertSizeSlider = sub:Slider("Tamanho da Seta", 8, 50, HighAlertCore:GetArrowSize(), function(v)
             HighAlertCore:SetArrowSize(v)
         end)
+        ConfigManager:Register("highAlertArrowSize", alertSizeSlider)
     end)
+    ConfigManager:Register("highAlertEnabled", alertToggle)
 
     local HeadGroup = Visual:Group("Cabeças (Headshot)")
-    HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
+    local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
         HeadESP:SetEnabled(v)
     end, function(sub)
-        sub:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
+        local headSizeSlider = sub:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
             HeadESP:SetHeadSize(v)
         end)
+        ConfigManager:Register("headSize", headSizeSlider)
     end)
+    ConfigManager:Register("headEnabled", headToggle)
     
     -- ============================================
     -- GRUPO: MINIMAPA (RADAR)
     -- ============================================
     local MinimapGroup = Visual:Group("Minimapa (Radar)")
-    MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
+    local minimapToggle = MinimapGroup:Toggle("Ativar Minimapa", MinimapCore:IsEnabled(), function(v)
         MinimapCore:SetEnabled(v)
     end, function(sub)
-        sub:ShapeSelector("Formato", MinimapCore:IsRound(), function(isRound)
+        local shapeSel = sub:ShapeSelector("Formato", MinimapCore:IsRound(), function(isRound)
             MinimapCore:SetRound(isRound)
         end)
-        sub:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
+        ConfigManager:Register("minimapRound", shapeSel)
+
+        local lockToggle = sub:Toggle("Travar (Não Arrastar)", MinimapCore:IsLocked(), function(v)
             MinimapCore:SetLocked(v)
         end)
-        sub:Toggle("Mostrar Mapa (Terreno)", MinimapCore:IsTerrain(), function(v)
+        ConfigManager:Register("minimapLocked", lockToggle)
+
+        local terrainToggle = sub:Toggle("Mostrar Mapa (Terreno)", MinimapCore:IsTerrain(), function(v)
             MinimapCore:SetTerrain(v)
         end)
-        sub:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
+        ConfigManager:Register("minimapTerrain", terrainToggle)
+
+        local sizeSlider = sub:Slider("Tamanho do HUD", 100, 300, MinimapCore:GetSize(), function(v)
             MinimapCore:SetSize(v)
         end)
-        sub:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
+        ConfigManager:Register("minimapSize", sizeSlider)
+
+        local zoomSlider = sub:Slider("Distância (Zoom)", 50, 500, MinimapCore:GetZoom(), function(v)
             MinimapCore:SetZoom(v)
         end)
-        sub:Slider("Render", 100, 2000, MinimapCore:GetRender(), function(v)
+        ConfigManager:Register("minimapZoom", zoomSlider)
+
+        local renderSlider = sub:Slider("Render", 100, 2000, MinimapCore:GetRender(), function(v)
             MinimapCore:SetRender(v)
         end)
+        ConfigManager:Register("minimapRender", renderSlider)
     end)
+    ConfigManager:Register("minimapEnabled", minimapToggle)
     
 end -- End Visual Block
 
@@ -3937,6 +4117,7 @@ do
     local respawnToggle = CharGroup:Toggle("Respawn Onde Morreu", RespawnCore:IsEnabled(), function(v)
         RespawnCore:SetEnabled(v)
     end)
+    ConfigManager:Register("respawnEnabled", respawnToggle)
 
     local UtilityGroup = Local:Group("Utilidades")
     UtilityGroup:Bind("Tecla Soltar Cursor", (getgenv().UnlockMouseKey or Enum.KeyCode.RightControl), function(key)
@@ -4058,10 +4239,11 @@ do
         end
     end)
 
-    AntiAFKGroup:Toggle("Ativar Anti-AFK", false, function(v)
+    local antiAfkToggle = AntiAFKGroup:Toggle("Ativar Anti-AFK", false, function(v)
         antiAfkEnabled = v
         AFKHud.Visible = v
     end)
+    ConfigManager:Register("antiAfkEnabled", antiAfkToggle)
 end -- End Local Block
 
 
@@ -4077,77 +4259,38 @@ do
 
     ManagerGroup:Button("Salvar Configurações", function()
         if writefile then
-            local config = {
-                aimbot = AimbotCore:IsEnabled(),
-                teamCheck = getgenv().TeamCheck,
-                legitMode = getgenv().LegitMode,
-                killAura = KillAuraCore:IsEnabled(),
-                fov = AimbotCore:GetFOV(),
-                esp = ESPCore:IsEnabled(),
-                espNames = getgenv().ESPNames,
-                espTracers = getgenv().ESPTracers,
-                espHealth = getgenv().ESPHealth,
-                highAlert = HighAlertCore:IsEnabled(),
-                highAlertTeamCheck = HighAlertCore:IsTeamCheck(),
-                highAlertThickness = HighAlertCore:GetBorderThickness(),
-                highAlertArrow = HighAlertCore:IsArrowEnabled(),
-                highAlertArrowRadius = HighAlertCore:GetArrowRadius(),
-                highAlertArrowSize = HighAlertCore:GetArrowSize(),
-                minimap = MinimapCore:IsEnabled(),
-                minimapRound = MinimapCore:IsRound(),
-                minimapLocked = MinimapCore:IsLocked(),
-                minimapTerrain = MinimapCore:IsTerrain(),
-                minimapSize = MinimapCore:GetSize(),
-                minimapZoom = MinimapCore:GetZoom(),
-                headEsp = HeadESP:IsEnabled(),
-                headSize = HeadESP:GetHeadSize(),
-                respawn = RespawnCore:IsEnabled(),
-                unlockKey = getgenv().UnlockMouseKey.Name
-            }
-            writefile("DreeZy_Voidware.json", HttpService:JSONEncode(config))
-            Notify("Configurações salvas!")
+            local success = ConfigManager:Save()
+            if success then
+                Notify("Configurações salvas em DreeZyHub/Config.json!")
+            else
+                Notify("Erro ao salvar configurações!")
+            end
         else
             Notify("Executor não suporta writefile")
         end
     end)
 
     ManagerGroup:Button("Carregar Configurações", function()
-        if isfile and isfile("DreeZy_Voidware.json") then
-            local config = HttpService:JSONDecode(readfile("DreeZy_Voidware.json"))
-            if config then
-                -- Note: Toggles are local to other scopes, so we cannot update them directly here easily unless we exposed them or use a global registry.
-                -- For now, we just notify. Logic is updated via Set... functions if we added them.
-                -- To fix this properly, we would need to expose the toggles.
-                Notify("Configurações Carregadas (Lógica)")
-                
-                -- Update Logic directly
-                if config.aimbot ~= nil then AimbotCore:SetEnabled(config.aimbot) end
-                if config.teamCheck ~= nil then getgenv().TeamCheck = config.teamCheck end
-                if config.esp ~= nil then ESPCore:SetEnabled(config.esp) end
-                if config.highAlert ~= nil then HighAlertCore:SetEnabled(config.highAlert) end
-                if config.highAlertTeamCheck ~= nil then HighAlertCore:SetTeamCheck(config.highAlertTeamCheck) end
-                if config.highAlertThickness ~= nil then HighAlertCore:SetBorderThickness(config.highAlertThickness) end
-                if config.highAlertArrow ~= nil then HighAlertCore:SetArrowEnabled(config.highAlertArrow) end
-                if config.highAlertArrowRadius ~= nil then HighAlertCore:SetArrowRadius(config.highAlertArrowRadius) end
-                if config.highAlertArrowSize ~= nil then HighAlertCore:SetArrowSize(config.highAlertArrowSize) end
-                if config.minimap ~= nil then MinimapCore:SetEnabled(config.minimap) end
-                if config.minimapRound ~= nil then MinimapCore:SetRound(config.minimapRound) end
-                if config.minimapLocked ~= nil then MinimapCore:SetLocked(config.minimapLocked) end
-                if config.minimapTerrain ~= nil then MinimapCore:SetTerrain(config.minimapTerrain) end
-                if config.minimapSize ~= nil then MinimapCore:SetSize(config.minimapSize) end
-                if config.minimapZoom ~= nil then MinimapCore:SetZoom(config.minimapZoom) end
-                -- ... etc
-                
-                if config.unlockKey then getgenv().UnlockMouseKey = Enum.KeyCode[config.unlockKey] end
+        if isfile then
+            local success = ConfigManager:Load()
+            if success then
+                Notify("Configurações carregadas com sucesso!")
+            else
+                Notify("Nenhum save encontrado em DreeZyHub/Config.json")
             end
         else
-            Notify("Nenhum save encontrado")
+            Notify("Executor não suporta isfile")
         end
     end)
 
     local InfoGroup = Settings:Group("Informações")
     InfoGroup:Button("Criado por DreeZy", function() setclipboard("DreeZy") end)
 end -- End Settings Block
+
+-- Auto Load Configs on Execution
+pcall(function()
+    ConfigManager:Load()
+end)
 
 Notify("DreeZy Voidware V2 Carregado!")
 Notify("Use [Right Shift] para abrir/fechar o Menu!")
