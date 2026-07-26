@@ -3780,14 +3780,13 @@ do
         return list
     end
 
-    local AimbotExGroup = Combat:Group("Exceção (Aimbot)")
-    AimbotExGroup:InteractiveList("Exceção Jogadores", GetExPlayersListMain, function(itemName)
+    AimbotGroup:InteractiveList("Exceção Jogadores", GetExPlayersListMain, function(itemName)
         AimbotCore:IgnorePlayer(itemName)
     end, function(itemName)
         AimbotCore:UnignorePlayer(itemName)
     end)
 
-    AimbotExGroup:InteractiveList("Exceção Times", GetExTeamsListMain, function(itemName)
+    AimbotGroup:InteractiveList("Exceção Times", GetExTeamsListMain, function(itemName)
         AimbotCore:IgnoreTeam(itemName)
     end, function(itemName)
         AimbotCore:UnignoreTeam(itemName)
