@@ -2142,25 +2142,41 @@ function VoidLib:CreateWindow()
         if not getasset then return end
 
         local targetPath = "DreeZyHub/intro.gif"
-        local sourcePath = "C:\\Users\\Ekon\\Downloads\\asciicraft_1785097522740.gif"
+        local githubUrl = "https://raw.githubusercontent.com/fraudesnaoseinaosei-max/j4rty678/main/intro.gif"
+        local localSourcePath = "C:\\Users\\Ekon\\Downloads\\asciicraft_1785097522740.gif"
 
         pcall(function()
             if isfolder and makefolder and not isfolder("DreeZyHub") then
                 makefolder("DreeZyHub")
             end
-            if isfile and not isfile(targetPath) and readfile and writefile then
-                local data = readfile(sourcePath)
-                if data and #data > 0 then
-                    writefile(targetPath, data)
+
+            local fileExists = isfile and isfile(targetPath)
+            if not fileExists then
+                local downloadedData = nil
+                -- 1. Baixar diretamente do GitHub Raw URL (funciona para qualquer pessoa executando online!)
+                pcall(function()
+                    downloadedData = game:HttpGet(githubUrl)
+                end)
+
+                -- 2. Fallback para caminho local se HttpGet falhar
+                if (not downloadedData or #downloadedData == 0) and readfile then
+                    pcall(function()
+                        downloadedData = readfile(localSourcePath)
+                    end)
+                end
+
+                if downloadedData and #downloadedData > 0 and writefile then
+                    writefile(targetPath, downloadedData)
                 end
             end
         end)
 
-        local finalPath = (isfile and isfile(targetPath)) and targetPath or sourcePath
         local assetId = nil
-        pcall(function() assetId = getasset(finalPath) end)
-        if not assetId then
+        if isfile and isfile(targetPath) then
             pcall(function() assetId = getasset(targetPath) end)
+        end
+        if not assetId then
+            pcall(function() assetId = getasset(localSourcePath) end)
         end
 
         if assetId then
