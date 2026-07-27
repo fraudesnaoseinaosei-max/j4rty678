@@ -4401,14 +4401,7 @@ do
             local darkFrame = Instance.new("Frame")
             darkFrame.Size = UDim2.new(1, 0, 1, 0)
             darkFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            darkFrame.BackgroundTransparency = 0.45 -- Escurece um pouco a tela!
-            darkFrame.ZIndex = 1
-            darkFrame.Parent = overlayGui
-            
-            overlayGui.Parent = CoreGui
-            ClickTPPLOverlay = overlayGui
-
-            -- 2. Ativar contorno (Highlight) e nome de cada jogador respeitando a cor do time
+            darkFrame.BackgroundTransparency = 0.45             -- 2. Ativar contorno (Highlight) brilhante visível através de paredes (AlwaysOnTop)
             local function ApplyPlayerESP(p)
                 if p == game:GetService("Players").LocalPlayer then return end
                 if not p.Character then return end
@@ -4422,9 +4415,10 @@ do
                     hl.Name = "ClickTPPLHighlight"
                     hl.Adornee = p.Character
                     hl.FillColor = teamColor
-                    hl.FillTransparency = 0.75
+                    hl.FillTransparency = 0.35 -- Mais forte e brilhante!
                     hl.OutlineColor = teamColor
                     hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Funciona ATRAVÉS DAS PAREDES!
                     hl.Parent = p.Character
                 end
 
@@ -4434,19 +4428,19 @@ do
                         local bGui = Instance.new("BillboardGui")
                         bGui.Name = "ClickTPPLName"
                         bGui.Adornee = head
-                        bGui.Size = UDim2.new(0, 160, 0, 30)
-                        bGui.StudsOffset = Vector3.new(0, 2.5, 0)
-                        bGui.AlwaysOnTop = true
+                        bGui.Size = UDim2.new(0, 180, 0, 30)
+                        bGui.StudsOffset = Vector3.new(0, 2.8, 0)
+                        bGui.AlwaysOnTop = true -- Visível através das paredes!
                         
                         local text = Instance.new("TextLabel")
                         text.Size = UDim2.new(1, 0, 1, 0)
                         text.BackgroundTransparency = 1
                         text.Font = Enum.Font.GothamBold
-                        text.TextSize = 13
+                        text.TextSize = 14
                         text.TextColor3 = teamColor
-                        text.TextStrokeTransparency = 0.4
+                        text.TextStrokeTransparency = 0
                         text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-                        text.Text = p.DisplayName or p.Name
+                        text.Text = (p.DisplayName or p.Name)
                         text.Parent = bGui
                         bGui.Parent = p.Character
                     end
@@ -4465,30 +4459,33 @@ do
             end)
             table.insert(ClickTPPLConnections, connAdded)
 
-            -- 3. Ao clicar em um jogador com o contorno, dá TP e desativa automaticamente!
+            -- 3. Ao clicar em um jogador (mesmo ATRÁS DE PAREDES), dá TP e respeita a Posição configurada (Em Cima, Atrás, Dentro)!
             local UIS = game:GetService("UserInputService")
             local LocalPlayer = game:GetService("Players").LocalPlayer
 
             local connClick = UIS.InputBegan:Connect(function(input, gpe)
                 if not ClickTPPLActive then return end
                 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    local mouse = LocalPlayer:GetMouse()
-                    local targetObj = mouse.Target
-                    local hitPos = mouse.Hit and mouse.Hit.Position
+                    local mousePos = UIS:GetMouseLocation()
+                    local camera = workspace.CurrentCamera
+                    if not camera then return end
 
+                    -- Raycast da câmera ou busca em 2D na tela pelo jogador sob o cursor
                     local targetPlayer = nil
-                    if targetObj then
-                        targetPlayer = GetPlayerFromHitTarget(targetObj)
-                    end
+                    local closestScreenDist = 50 -- Raio de tolerância em pixels no clique da tela
 
-                    if not targetPlayer and hitPos then
-                        local closestDist = 12
-                        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
-                            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                                local dist = (p.Character.HumanoidRootPart.Position - hitPos).Magnitude
-                                if dist < closestDist then
-                                    closestDist = dist
-                                    targetPlayer = p
+                    for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+                        if p ~= LocalPlayer and p.Character then
+                            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                            local head = p.Character:FindFirstChild("Head")
+                            if hrp and head then
+                                local screenPos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+                                if onScreen then
+                                    local dist2D = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(mousePos.X, mousePos.Y)).Magnitude
+                                    if dist2D < closestScreenDist then
+                                        closestScreenDist = dist2D
+                                        targetPlayer = p
+                                    end
                                 end
                             end
                         end
@@ -4498,11 +4495,24 @@ do
                         local myChar = LocalPlayer.Character
                         if myChar and myChar:FindFirstChild("HumanoidRootPart") then
                             local targetHRP = targetPlayer.Character.HumanoidRootPart
-                            myChar:SetPrimaryPartCFrame(targetHRP.CFrame + Vector3.new(0, 3, 0))
+                            
+                            -- Respeitar a configuração de posição do TP ("Em Cima", "Atrás", "Dentro")
+                            local posMode = (KillAuraCore and KillAuraCore.GetPositionMode and KillAuraCore:GetPositionMode()) or "Em Cima"
+                            local targetCFrame = targetHRP.CFrame
+
+                            if posMode == "Atrás" then
+                                targetCFrame = targetHRP.CFrame * CFrame.new(0, 0, 4)
+                            elseif posMode == "Dentro" then
+                                targetCFrame = targetHRP.CFrame
+                            else -- "Em Cima" (Padrão)
+                                targetCFrame = targetHRP.CFrame * CFrame.new(0, 4.5, 0)
+                            end
+
+                            myChar:SetPrimaryPartCFrame(targetCFrame)
                             
                             game:GetService("StarterGui"):SetCore("SendNotification", {
                                 Title = "DreeZy HUB",
-                                Text = "Teleportado para: " .. (targetPlayer.DisplayName or targetPlayer.Name),
+                                Text = "Teleportado para: " .. (targetPlayer.DisplayName or targetPlayer.Name) .. " (" .. posMode .. ")",
                                 Duration = 2.5
                             })
 
