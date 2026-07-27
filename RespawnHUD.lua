@@ -2006,6 +2006,12 @@ end)()
 -- VOIDWARE UI LIBRARY
 -- ==========================================
 local VoidLib = {}
+local function Notify(msg)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text=tostring(msg), Duration=3})
+    end)
+end
+
 local Themes = {
     Background = Color3.fromRGB(17, 17, 20),
     Sidebar = Color3.fromRGB(25, 25, 30),
@@ -2148,12 +2154,12 @@ function VoidLib:CreateWindow()
 
         local AsciiTextLabel = Instance.new("TextLabel")
         AsciiTextLabel.Name = "AsciiCatText"
-        AsciiTextLabel.Size = UDim2.new(0, 480, 0, 480)
-        AsciiTextLabel.Position = UDim2.new(0.5, -240, 0.5, -240)
+        AsciiTextLabel.Size = UDim2.new(0, 800, 0, 800)
+        AsciiTextLabel.Position = UDim2.new(0.5, -400, 0.5, -400)
         AsciiTextLabel.BackgroundTransparency = 1
         AsciiTextLabel.Font = Enum.Font.Code -- Fonte monospaçada nativa do Roblox
-        AsciiTextLabel.TextColor3 = Color3.fromHex("#E2E8F0") -- Sombreado P&B / Neon Asciicraft!
-        AsciiTextLabel.TextSize = 10 -- 10px (Exato do Projeto Editor ASCII)
+        AsciiTextLabel.TextColor3 = Color3.fromHex("#D842FF") -- Roxo Neon DreeZy HUB!
+        AsciiTextLabel.TextSize = 16 -- Tamanho aumentado para visualização grande e nítida!
         AsciiTextLabel.TextXAlignment = Enum.TextXAlignment.Center
         AsciiTextLabel.TextYAlignment = Enum.TextYAlignment.Center
         AsciiTextLabel.ZIndex = 10000001
