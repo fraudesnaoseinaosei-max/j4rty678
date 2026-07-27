@@ -2849,6 +2849,124 @@ function VoidLib:CreateWindow()
                     return SToggleObj
                 end
 
+                function SubGroupObj:ToggleSlider(stext, smin, smax, sdefaultVal, sdefaultState, scallbackToggle, scallbackSlider)
+                    local STFrame = CreateSubElementFrame()
+                    
+                    local STLab = Instance.new("TextLabel")
+                    STLab.Text = stext
+                    STLab.Size = UDim2.new(0, 95, 1, 0)
+                    STLab.Position = UDim2.new(0, 10, 0, 0)
+                    STLab.BackgroundTransparency = 1
+                    STLab.Font = Enum.Font.GothamMedium
+                    STLab.TextColor3 = Themes.Text
+                    STLab.TextSize = 13
+                    STLab.TextXAlignment = Enum.TextXAlignment.Left
+                    STLab.ZIndex = 83
+                    STLab.Parent = STFrame
+
+                    -- Barra de linha rosa/magenta com círculo preto articulado no meio
+                    local BarTrack = Instance.new("TextButton")
+                    BarTrack.Text = ""
+                    BarTrack.AutoButtonColor = false
+                    BarTrack.Size = UDim2.new(1, -165, 0, 6)
+                    BarTrack.Position = UDim2.new(0, 108, 0.5, -3)
+                    BarTrack.BackgroundColor3 = Color3.fromRGB(50, 25, 55)
+                    BarTrack.BorderSizePixel = 0
+                    BarTrack.ZIndex = 83
+                    BarTrack.Parent = STFrame
+                    local BTC = Instance.new("UICorner"); BTC.CornerRadius = UDim.new(1, 0); BTC.Parent = BarTrack
+
+                    local initialVal = math.clamp(sdefaultVal or smin, smin, smax)
+                    local initialProgress = (initialVal - smin) / (smax - smin)
+
+                    local FillBar = Instance.new("Frame")
+                    FillBar.Size = UDim2.new(initialProgress, 0, 1, 0)
+                    FillBar.BackgroundColor3 = Themes.Accent
+                    FillBar.BorderSizePixel = 0
+                    FillBar.ZIndex = 84
+                    FillBar.Parent = BarTrack
+                    local FBC = Instance.new("UICorner"); FBC.CornerRadius = UDim.new(1, 0); FBC.Parent = FillBar
+
+                    -- Círculo / Bola preta articulada na linha
+                    local KnobCircle = Instance.new("Frame")
+                    KnobCircle.Size = UDim2.new(0, 16, 0, 16)
+                    KnobCircle.Position = UDim2.new(initialProgress, -8, 0.5, -8)
+                    KnobCircle.BackgroundColor3 = Color3.fromRGB(15, 15, 20) -- Bola preta estilo desenho!
+                    KnobCircle.ZIndex = 85
+                    KnobCircle.Parent = BarTrack
+                    local KC = Instance.new("UICorner"); KC.CornerRadius = UDim.new(1, 0); KC.Parent = KnobCircle
+                    local KS = Instance.new("UIStroke"); KS.Color = Themes.Accent; KS.Thickness = 2; KS.Parent = KnobCircle
+
+                    -- Lógica de arrasto do círculo na linha
+                    local isDragging = false
+                    local function UpdateBar(inputPos)
+                        local trackAbsPos = BarTrack.AbsolutePosition.X
+                        local trackAbsSize = BarTrack.AbsoluteSize.X
+                        if trackAbsSize <= 0 then return end
+                        
+                        local relX = math.clamp(inputPos.X - trackAbsPos, 0, trackAbsSize)
+                        local alpha = relX / trackAbsSize
+                        local val = math.floor(smin + alpha * (smax - smin) + 0.5)
+                        val = math.clamp(val, smin, smax)
+                        
+                        local progress = (val - smin) / (smax - smin)
+                        FillBar.Size = UDim2.new(progress, 0, 1, 0)
+                        KnobCircle.Position = UDim2.new(progress, -8, 0.5, -8)
+                        pcall(scallbackSlider, val)
+                    end
+
+                    BarTrack.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            isDragging = true
+                            UpdateBar(input.Position)
+                        end
+                    end)
+
+                    UIS.InputChanged:Connect(function(input)
+                        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                            UpdateBar(input.Position)
+                        end
+                    end)
+
+                    UIS.InputEnded:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                            isDragging = false
+                        end
+                    end)
+
+                    -- Toggle Switch no canto direito
+                    local STBtn = Instance.new("TextButton")
+                    STBtn.Size = UDim2.new(0, 40, 0, 20)
+                    STBtn.Position = UDim2.new(1, -50, 0.5, -10)
+                    STBtn.BackgroundColor3 = sdefaultState and Themes.Accent or Color3.fromRGB(60,60,65)
+                    STBtn.Text = ""
+                    STBtn.ZIndex = 83
+                    STBtn.Parent = STFrame
+                    local STBC = Instance.new("UICorner"); STBC.CornerRadius = UDim.new(1, 0); STBC.Parent = STBtn
+
+                    local scircle = Instance.new("Frame")
+                    scircle.Size = UDim2.new(0, 16, 0, 16)
+                    scircle.Position = sdefaultState and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+                    scircle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+                    scircle.ZIndex = 84
+                    scircle.Parent = STBtn
+                    local SCC = Instance.new("UICorner"); SCC.CornerRadius = UDim.new(1, 0); SCC.Parent = scircle
+
+                    local senabled = sdefaultState
+                    local SToggleSliderObj = {
+                        Frame = STFrame,
+                        Get = function() return senabled end,
+                        Set = function(val)
+                            senabled = val
+                            TweenService:Create(scircle, TweenInfo.new(0.2), {Position = senabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+                            TweenService:Create(STBtn, TweenInfo.new(0.2), {BackgroundColor3 = senabled and Themes.Accent or Color3.fromRGB(60,60,65)}):Play()
+                            pcall(scallbackToggle, senabled)
+                        end
+                    }
+                    STBtn.MouseButton1Click:Connect(function() SToggleSliderObj.Set(not senabled) end)
+                    return SToggleSliderObj
+                end
+
                 function SubGroupObj:Slider(stext, smin, smax, sdefault, scallback, sformatter)
                     local SSFrame = CreateSubElementFrame()
                     SSFrame.Size = UDim2.new(1, 0, 0, 50)
@@ -3249,10 +3367,11 @@ function VoidLib:CreateWindow()
                 return SubWindowFrame, SubGroupObj
             end
 
-            function GroupObj:Toggle(text, default, callback, subConfigCallback, extraBtnText, extraBtnCallback)
+            function GroupObj:Toggle(text, default, callback, subConfigCallback, extraBtnText, extraBtnCallback, extraBtn2Text, extraBtn2Callback)
                 local TFrame = CreateElementFrame()
                 local hasSub = type(subConfigCallback) == "function"
                 local hasExtra = extraBtnText and type(extraBtnCallback) == "function"
+                local hasExtra2 = extraBtn2Text and type(extraBtn2Callback) == "function"
                 
                 local rightOffset = 50
                 if hasSub then rightOffset = 78 end
@@ -3267,10 +3386,12 @@ function VoidLib:CreateWindow()
                 TLab.TextXAlignment = Enum.TextXAlignment.Left
                 TLab.Parent = TFrame
                 
+                local totalExtraWidth = 0
+
                 if hasExtra then
                     local ExtraBtn = Instance.new("TextButton")
                     ExtraBtn.Size = UDim2.new(0, 70, 0, 24)
-                    ExtraBtn.Position = UDim2.new(1, -(rightOffset + 78), 0.5, -12)
+                    ExtraBtn.Position = UDim2.new(1, -(rightOffset + 74), 0.5, -12)
                     ExtraBtn.BackgroundColor3 = Themes.Accent
                     ExtraBtn.Text = extraBtnText
                     ExtraBtn.Font = Enum.Font.GothamBold
@@ -3283,11 +3404,29 @@ function VoidLib:CreateWindow()
                     ExtraBtn.MouseButton1Click:Connect(function()
                         pcall(extraBtnCallback)
                     end)
-
-                    TLab.Size = UDim2.new(1, -(rightOffset + 88), 1, 0)
-                else
-                    TLab.Size = UDim2.new(1, -(rightOffset + 10), 1, 0)
+                    totalExtraWidth = 78
                 end
+
+                if hasExtra2 then
+                    local ExtraBtn2 = Instance.new("TextButton")
+                    ExtraBtn2.Size = UDim2.new(0, 84, 0, 24)
+                    ExtraBtn2.Position = UDim2.new(1, -(rightOffset + totalExtraWidth + 88), 0.5, -12)
+                    ExtraBtn2.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+                    ExtraBtn2.Text = extraBtn2Text
+                    ExtraBtn2.Font = Enum.Font.GothamBold
+                    ExtraBtn2.TextColor3 = Themes.Accent
+                    ExtraBtn2.TextSize = 11
+                    ExtraBtn2.Parent = TFrame
+                    local EBC2 = Instance.new("UICorner"); EBC2.CornerRadius = UDim.new(0, 6); EBC2.Parent = ExtraBtn2
+                    local EBS2 = Instance.new("UIStroke"); EBS2.Color = Themes.Accent; EBS2.Thickness = 1; EBS2.Transparency = 0.6; EBS2.Parent = ExtraBtn2
+
+                    ExtraBtn2.MouseButton1Click:Connect(function()
+                        pcall(extraBtn2Callback, ExtraBtn2)
+                    end)
+                    totalExtraWidth = totalExtraWidth + 92
+                end
+
+                TLab.Size = UDim2.new(1, -(rightOffset + totalExtraWidth + 10), 1, 0)
                 
                 local TBtn = Instance.new("TextButton")
                 TBtn.Size = UDim2.new(0, 40, 0, 20)
@@ -4197,7 +4336,194 @@ do
     local TP = User:Group("TP")
 
     pcall(function()
-        -- Kill Aura dentro da aba TP com Engrenagem (Sub-Hub) e botão Click TP
+        -- >>> CLICK TP PL (Teleporte ao clicar no contorno do jogador na tela)
+        local ClickTPPLActive = false
+        local ClickTPPLOverlay = nil
+        local ClickTPPLConnections = {}
+        local ClickTPPLButtonRef = nil
+
+        local function DisableClickTPPL()
+            ClickTPPLActive = false
+            if ClickTPPLOverlay and ClickTPPLOverlay.Parent then
+                ClickTPPLOverlay:Destroy()
+                ClickTPPLOverlay = nil
+            end
+            for _, conn in pairs(ClickTPPLConnections) do
+                pcall(function() conn:Disconnect() end)
+            end
+            ClickTPPLConnections = {}
+            
+            -- Limpar destaques de contorno (Highlight) e nomes
+            for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+                if p.Character then
+                    local hl = p.Character:FindFirstChild("ClickTPPLHighlight")
+                    if hl then hl:Destroy() end
+                    local nb = p.Character:FindFirstChild("ClickTPPLName")
+                    if nb then nb:Destroy() end
+                end
+            end
+            
+            if ClickTPPLButtonRef then
+                ClickTPPLButtonRef.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+                ClickTPPLButtonRef.TextColor3 = Themes.Accent
+            end
+        end
+
+        local function GetPlayerFromHitTarget(target)
+            if not target then return nil end
+            local current = target
+            while current and current ~= workspace do
+                local p = game:GetService("Players"):GetPlayerFromCharacter(current)
+                if p and p ~= game:GetService("Players").LocalPlayer then
+                    return p
+                end
+                current = current.Parent
+            end
+            return nil
+        end
+
+        local function EnableClickTPPL(btnRef)
+            ClickTPPLButtonRef = btnRef
+            ClickTPPLActive = true
+            
+            if btnRef then
+                btnRef.BackgroundColor3 = Themes.Accent
+                btnRef.TextColor3 = Color3.fromRGB(255, 255, 255)
+            end
+
+            -- 1. Fundo escuro na tela
+            local CoreGui = game:GetService("CoreGui")
+            local overlayGui = Instance.new("ScreenGui")
+            overlayGui.Name = "ClickTPPLScreenOverlay"
+            overlayGui.DisplayOrder = 99999
+            overlayGui.ResetOnSpawn = false
+            
+            local darkFrame = Instance.new("Frame")
+            darkFrame.Size = UDim2.new(1, 0, 1, 0)
+            darkFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            darkFrame.BackgroundTransparency = 0.45 -- Escurece um pouco a tela!
+            darkFrame.ZIndex = 1
+            darkFrame.Parent = overlayGui
+            
+            overlayGui.Parent = CoreGui
+            ClickTPPLOverlay = overlayGui
+
+            -- 2. Ativar contorno (Highlight) e nome de cada jogador respeitando a cor do time
+            local function ApplyPlayerESP(p)
+                if p == game:GetService("Players").LocalPlayer then return end
+                if not p.Character then return end
+
+                local teamColor = Color3.fromRGB(255, 255, 255)
+                if p.TeamColor then teamColor = p.TeamColor.Color end
+                if p.Team and p.Team.TeamColor then teamColor = p.Team.TeamColor.Color end
+
+                if not p.Character:FindFirstChild("ClickTPPLHighlight") then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "ClickTPPLHighlight"
+                    hl.Adornee = p.Character
+                    hl.FillColor = teamColor
+                    hl.FillTransparency = 0.75
+                    hl.OutlineColor = teamColor
+                    hl.OutlineTransparency = 0
+                    hl.Parent = p.Character
+                end
+
+                if not p.Character:FindFirstChild("ClickTPPLName") then
+                    local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
+                    if head then
+                        local bGui = Instance.new("BillboardGui")
+                        bGui.Name = "ClickTPPLName"
+                        bGui.Adornee = head
+                        bGui.Size = UDim2.new(0, 160, 0, 30)
+                        bGui.StudsOffset = Vector3.new(0, 2.5, 0)
+                        bGui.AlwaysOnTop = true
+                        
+                        local text = Instance.new("TextLabel")
+                        text.Size = UDim2.new(1, 0, 1, 0)
+                        text.BackgroundTransparency = 1
+                        text.Font = Enum.Font.GothamBold
+                        text.TextSize = 13
+                        text.TextColor3 = teamColor
+                        text.TextStrokeTransparency = 0.4
+                        text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                        text.Text = p.DisplayName or p.Name
+                        text.Parent = bGui
+                        bGui.Parent = p.Character
+                    end
+                end
+            end
+
+            for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+                pcall(function() ApplyPlayerESP(p) end)
+            end
+
+            local connAdded = game:GetService("Players").PlayerAdded:Connect(function(p)
+                p.CharacterAdded:Connect(function()
+                    task.wait(0.5)
+                    if ClickTPPLActive then pcall(function() ApplyPlayerESP(p) end) end
+                end)
+            end)
+            table.insert(ClickTPPLConnections, connAdded)
+
+            -- 3. Ao clicar em um jogador com o contorno, dá TP e desativa automaticamente!
+            local UIS = game:GetService("UserInputService")
+            local LocalPlayer = game:GetService("Players").LocalPlayer
+
+            local connClick = UIS.InputBegan:Connect(function(input, gpe)
+                if not ClickTPPLActive then return end
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    local mouse = LocalPlayer:GetMouse()
+                    local targetObj = mouse.Target
+                    local hitPos = mouse.Hit and mouse.Hit.Position
+
+                    local targetPlayer = nil
+                    if targetObj then
+                        targetPlayer = GetPlayerFromHitTarget(targetObj)
+                    end
+
+                    if not targetPlayer and hitPos then
+                        local closestDist = 12
+                        for _, p in pairs(game:GetService("Players"):GetPlayers()) do
+                            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                                local dist = (p.Character.HumanoidRootPart.Position - hitPos).Magnitude
+                                if dist < closestDist then
+                                    closestDist = dist
+                                    targetPlayer = p
+                                end
+                            end
+                        end
+                    end
+
+                    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        local myChar = LocalPlayer.Character
+                        if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                            local targetHRP = targetPlayer.Character.HumanoidRootPart
+                            myChar:SetPrimaryPartCFrame(targetHRP.CFrame + Vector3.new(0, 3, 0))
+                            
+                            game:GetService("StarterGui"):SetCore("SendNotification", {
+                                Title = "DreeZy HUB",
+                                Text = "Teleportado para: " .. (targetPlayer.DisplayName or targetPlayer.Name),
+                                Duration = 2.5
+                            })
+
+                            -- Auto desativa o sistema e restaura a tela!
+                            DisableClickTPPL()
+                        end
+                    end
+                end
+            end)
+            table.insert(ClickTPPLConnections, connClick)
+        end
+
+        local function ToggleClickTPPL(btnRef)
+            if ClickTPPLActive then
+                DisableClickTPPL()
+            else
+                EnableClickTPPL(btnRef)
+            end
+        end
+
+        -- Kill Aura dentro da aba TP com Engrenagem (Sub-Hub), botão Click TP e botão Click TP PL
         local killAuraToggle = TP:Toggle("Tp player", (KillAuraCore and KillAuraCore.IsEnabled and KillAuraCore:IsEnabled()) or false, function(v)
             if KillAuraCore then KillAuraCore:SetEnabled(v) end
         end, function(sub)
@@ -4214,7 +4540,7 @@ do
                     game:GetService("StarterGui"):SetCore("SendNotification", {Title="DreeZy HUB", Text="Nenhum alvo encontrado para TP!", Duration=2})
                 end
             end
-        end)
+        end, "Click TP PL", ToggleClickTPPL)
         ConfigManager:Register("killAuraEnabled", killAuraToggle)
     
         local function GetPlayersList()
@@ -4302,8 +4628,10 @@ do
     local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
         ESPCore:SetEnabled(v)
     end, function(sub)
-        local espNamesToggle = sub:Toggle("Mostrar Nomes", (getgenv().ESPNames or false), function(v)
+        local espNamesToggle = sub:ToggleSlider("Mostrar Nomes", 6, 18, (getgenv().ESPNameSize or 9), (getgenv().ESPNames or false), function(v)
             getgenv().ESPNames = v
+        end, function(v)
+            getgenv().ESPNameSize = v
         end)
         ConfigManager:Register("espNames", espNamesToggle)
 
