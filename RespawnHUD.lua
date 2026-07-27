@@ -804,7 +804,12 @@ local ESPCore = (function()
                             
                             drawings.Box.Visible = true; drawings.Box.Color = color; drawings.Box.Size = Vector2.new(boxWidth, boxHeight); drawings.Box.Position = boxPos
                             if getgenv().ESPNames then
-                                drawings.NameTag.Visible = true; drawings.NameTag.Text = player.Name; drawings.NameTag.Color = color; drawings.NameTag.Position = Vector2.new(rootPos.X, headPos.Y - 18)
+                                local nameFontSize = math.clamp(math.floor(boxHeight * 0.18), 9, 13)
+                                drawings.NameTag.Visible = true
+                                drawings.NameTag.Text = player.Name
+                                drawings.NameTag.Size = nameFontSize
+                                drawings.NameTag.Color = color
+                                drawings.NameTag.Position = Vector2.new(rootPos.X, headPos.Y - (nameFontSize + 3))
                             else
                                 drawings.NameTag.Visible = false
                             end
