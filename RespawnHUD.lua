@@ -804,12 +804,12 @@ local ESPCore = (function()
                             
                             drawings.Box.Visible = true; drawings.Box.Color = color; drawings.Box.Size = Vector2.new(boxWidth, boxHeight); drawings.Box.Position = boxPos
                             if getgenv().ESPNames then
-                                local nameFontSize = math.clamp(math.floor(boxHeight * 0.12), 8, 10)
+                                local nameFontSize = math.clamp(tonumber(getgenv().ESPNameSize) or 12, 6, 26)
                                 drawings.NameTag.Visible = true
                                 drawings.NameTag.Text = player.Name
                                 drawings.NameTag.Size = nameFontSize
                                 drawings.NameTag.Color = color
-                                drawings.NameTag.Position = Vector2.new(rootPos.X, headPos.Y - (nameFontSize + 2))
+                                drawings.NameTag.Position = Vector2.new(rootPos.X, headPos.Y - (nameFontSize + 3))
                             else
                                 drawings.NameTag.Visible = false
                             end
@@ -4638,7 +4638,7 @@ do
     local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
         ESPCore:SetEnabled(v)
     end, function(sub)
-        local espNamesToggle = sub:ToggleSlider("Mostrar Nomes", 6, 18, (getgenv().ESPNameSize or 9), (getgenv().ESPNames or false), function(v)
+        local espNamesToggle = sub:ToggleSlider("Mostrar Nomes", 8, 24, (getgenv().ESPNameSize or 12), (getgenv().ESPNames or false), function(v)
             getgenv().ESPNames = v
         end, function(v)
             getgenv().ESPNameSize = v
