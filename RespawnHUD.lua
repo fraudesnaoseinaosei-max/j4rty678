@@ -3354,6 +3354,102 @@ function VoidLib:CreateWindow()
                 end)
                 return ToggleObj
             end
+
+            function GroupObj:ToggleKeybind(text, defaultState, defaultKey, toggleCallback, keybindCallback)
+                local TFrame = CreateElementFrame()
+                
+                local keybindOffset = 95
+                local TLab = Instance.new("TextLabel")
+                TLab.Text = text
+                TLab.Position = UDim2.new(0, 10, 0, 0)
+                TLab.Size = UDim2.new(1, -(keybindOffset + 45), 1, 0)
+                TLab.BackgroundTransparency = 1
+                TLab.Font = Enum.Font.GothamMedium
+                TLab.TextColor3 = Themes.Text
+                TLab.TextSize = 13
+                TLab.TextXAlignment = Enum.TextXAlignment.Left
+                TLab.Parent = TFrame
+                
+                local KeyBtn = Instance.new("TextButton")
+                KeyBtn.Size = UDim2.new(0, 36, 0, 22)
+                KeyBtn.Position = UDim2.new(1, -95, 0.5, -11)
+                KeyBtn.BackgroundColor3 = Themes.Element
+                local currentKey = typeof(defaultKey) == "EnumItem" and defaultKey or Enum.KeyCode.E
+                KeyBtn.Text = currentKey.Name
+                KeyBtn.Font = Enum.Font.GothamBold
+                KeyBtn.TextColor3 = Themes.Text
+                KeyBtn.TextSize = 11
+                KeyBtn.Parent = TFrame
+                local KBC = Instance.new("UICorner"); KBC.CornerRadius = UDim.new(0, 6); KBC.Parent = KeyBtn
+                local KBS = Instance.new("UIStroke"); KBS.Color = Themes.Accent; KBS.Thickness = 1; KBS.Transparency = 0.5; KBS.Parent = KeyBtn
+
+                local listening = false
+                KeyBtn.MouseButton1Click:Connect(function()
+                    if listening then return end
+                    listening = true
+                    KeyBtn.Text = "..."
+                    KeyBtn.TextColor3 = Themes.Accent
+                    
+                    local conn
+                    conn = game:GetService("UserInputService").InputBegan:Connect(function(input, gpe)
+                        if gpe then return end
+                        if input.UserInputType == Enum.UserInputType.Keyboard then
+                            local pressedKey = input.KeyCode
+                            if pressedKey ~= Enum.KeyCode.Escape then
+                                currentKey = pressedKey
+                                KeyBtn.Text = currentKey.Name
+                                pcall(keybindCallback, currentKey)
+                            else
+                                KeyBtn.Text = currentKey.Name
+                            end
+                            listening = false
+                            KeyBtn.TextColor3 = Themes.Text
+                            conn:Disconnect()
+                        end
+                    end)
+                end)
+                
+                local TBtn = Instance.new("TextButton")
+                TBtn.Size = UDim2.new(0, 40, 0, 20)
+                TBtn.Position = UDim2.new(1, -50, 0.5, -10)
+                TBtn.BackgroundColor3 = defaultState and Themes.Accent or Color3.fromRGB(60,60,65)
+                TBtn.Text = ""
+                TBtn.Parent = TFrame
+                local TBC = Instance.new("UICorner"); TBC.CornerRadius = UDim.new(1, 0); TBC.Parent = TBtn
+                
+                local circle = Instance.new("Frame")
+                circle.Size = UDim2.new(0, 16, 0, 16)
+                circle.Position = defaultState and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+                circle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+                circle.Parent = TBtn
+                local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(1, 0); CC.Parent = circle
+
+                local enabled = defaultState
+
+                local ToggleObj = {
+                    Frame = TFrame,
+                    Get = function() return enabled end,
+                    GetKey = function() return currentKey end,
+                    Set = function(val)
+                        enabled = val
+                        TweenService:Create(circle, TweenInfo.new(0.2), {Position = enabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+                        TweenService:Create(TBtn, TweenInfo.new(0.2), {BackgroundColor3 = enabled and Themes.Accent or Color3.fromRGB(60,60,65)}):Play()
+                        pcall(toggleCallback, enabled)
+                    end,
+                    SetKey = function(key)
+                        if typeof(key) == "EnumItem" then
+                            currentKey = key
+                            KeyBtn.Text = currentKey.Name
+                            pcall(keybindCallback, currentKey)
+                        end
+                    end
+                }
+
+                TBtn.MouseButton1Click:Connect(function()
+                    ToggleObj.Set(not enabled)
+                end)
+                return ToggleObj
+            end
             
             function GroupObj:Slider(text, min, max, default, callback, valueFormatter)
                 local SFrame = CreateElementFrame()
@@ -4155,6 +4251,41 @@ do
     
         game:GetService("Teams").ChildAdded:Connect(function() pcall(function() TeamDrop:Refresh(GetTeamsList()) end) end)
         game:GetService("Teams").ChildRemoved:Connect(function() pcall(function() TeamDrop:Refresh(GetTeamsList()) end) end)
+
+        -- >>> TP CLICK MOD (Teleporte ao Segurar Tecla + Clique M1)
+        local tpClickEnabled = false
+        local tpClickKey = Enum.KeyCode.E
+
+        local tpClickToggle = TP:ToggleKeybind("TP Click", false, Enum.KeyCode.E, function(v)
+            tpClickEnabled = v
+        end, function(k)
+            tpClickKey = k
+        end)
+        ConfigManager:Register("tpClickEnabled", tpClickToggle)
+
+        local UIS = game:GetService("UserInputService")
+        local Players = game:GetService("Players")
+
+        UIS.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if not tpClickEnabled then return end
+
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if UIS:IsKeyDown(tpClickKey) then
+                    local player = Players.LocalPlayer
+                    if player and player.Character then
+                        local mouse = player:GetMouse()
+                        if mouse and mouse.Hit then
+                            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                            if hrp then
+                                local targetPos = mouse.Hit.Position + Vector3.new(0, 3.5, 0)
+                                player.Character:SetPrimaryPartCFrame(CFrame.new(targetPos))
+                            end
+                        end
+                    end
+                end
+            end
+        end)
     end)
 end -- End User Block
 
