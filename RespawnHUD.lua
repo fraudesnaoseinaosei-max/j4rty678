@@ -2159,7 +2159,7 @@ function VoidLib:CreateWindow()
         AsciiTextLabel.ZIndex = 10000001
         AsciiTextLabel.Parent = Overlay
 
-        local AsciiFrames = return {
+        local AsciiFrames = {
     [1] = "",
     [2] = "           Z#G#5sZZXrZAaXX3G8B8r\n           ,23SG2sAS32GBGArSG8M?\n           ?Zas2rx2ZA9GGX22aG#M9.\n           .:r2Z2S#Sarra8GGM55#s:\n            xx2XXXsXasX2#G8H89r1\n           :xx121Z2XZXaA9325Aa.\n           r?:,,,?xXaaax222aZA,\n          12:.,.22SGGGSa1xs2ra1\n          x2?1x2r#BMHMM3rsZZsAZZ,\n         .xrx1?1a2GB8932232535X1r?\n                 ..,,,  ..,,.,.",
     [3] = "",
