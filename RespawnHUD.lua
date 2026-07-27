@@ -4248,38 +4248,6 @@ do
             getgenv().AimbotEasing = v / 10 
         end)
         ConfigManager:Register("aimbotEasing", easingSlider)
-
-        local function GetExPlayersList()
-            local list = {"Amigos"}
-            for _, p in pairs(game:GetService("Players"):GetPlayers()) do
-                if p ~= game:GetService("Players").LocalPlayer then
-                    table.insert(list, p.Name)
-                end
-            end
-            return list
-        end
-
-        local function GetExTeamsList()
-            local list = {}
-            pcall(function()
-                for _, t in pairs(game:GetService("Teams"):GetTeams()) do
-                    table.insert(list, t.Name)
-                end
-            end)
-            return list
-        end
-
-        sub:InteractiveList("Exceção Jogadores", GetExPlayersList, function(itemName)
-            AimbotCore:IgnorePlayer(itemName)
-        end, function(itemName)
-            AimbotCore:UnignorePlayer(itemName)
-        end)
-
-        sub:InteractiveList("Exceção Times", GetExTeamsList, function(itemName)
-            AimbotCore:IgnoreTeam(itemName)
-        end, function(itemName)
-            AimbotCore:UnignoreTeam(itemName)
-        end)
     end)
     ConfigManager:Register("aimbotEnabled", aimbotToggle)
 
@@ -4395,13 +4363,20 @@ do
             local CoreGui = game:GetService("CoreGui")
             local overlayGui = Instance.new("ScreenGui")
             overlayGui.Name = "ClickTPPLScreenOverlay"
-            overlayGui.DisplayOrder = 99999
+            overlayGui.DisplayOrder = 1 -- ZIndex baixo para ficar atrás do ESP e da UI
             overlayGui.ResetOnSpawn = false
             
             local darkFrame = Instance.new("Frame")
             darkFrame.Size = UDim2.new(1, 0, 1, 0)
             darkFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            darkFrame.BackgroundTransparency = 0.45             -- 2. Ativar contorno (Highlight) brilhante visível através de paredes (AlwaysOnTop)
+            darkFrame.BackgroundTransparency = 0.45 -- Tela escura ativada!
+            darkFrame.ZIndex = 1
+            darkFrame.Parent = overlayGui
+            
+            overlayGui.Parent = CoreGui
+            ClickTPPLOverlay = overlayGui
+
+            -- 2. Ativar contorno (Highlight) brilhante visível através de paredes (AlwaysOnTop)
             local function ApplyPlayerESP(p)
                 if p == game:GetService("Players").LocalPlayer then return end
                 if not p.Character then return end
@@ -4415,35 +4390,44 @@ do
                     hl.Name = "ClickTPPLHighlight"
                     hl.Adornee = p.Character
                     hl.FillColor = teamColor
-                    hl.FillTransparency = 0.35 -- Mais forte e brilhante!
+                    hl.FillTransparency = 0.3 -- Mais forte e brilhante!
                     hl.OutlineColor = teamColor
                     hl.OutlineTransparency = 0
                     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Funciona ATRAVÉS DAS PAREDES!
                     hl.Parent = p.Character
                 end
 
-                if not p.Character:FindFirstChild("ClickTPPLName") then
-                    local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
-                    if head then
-                        local bGui = Instance.new("BillboardGui")
-                        bGui.Name = "ClickTPPLName"
-                        bGui.Adornee = head
-                        bGui.Size = UDim2.new(0, 180, 0, 30)
-                        bGui.StudsOffset = Vector3.new(0, 2.8, 0)
-                        bGui.AlwaysOnTop = true -- Visível através das paredes!
-                        
-                        local text = Instance.new("TextLabel")
-                        text.Size = UDim2.new(1, 0, 1, 0)
-                        text.BackgroundTransparency = 1
-                        text.Font = Enum.Font.GothamBold
-                        text.TextSize = 14
-                        text.TextColor3 = teamColor
-                        text.TextStrokeTransparency = 0
-                        text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-                        text.Text = (p.DisplayName or p.Name)
-                        text.Parent = bGui
-                        bGui.Parent = p.Character
+                -- Se o ESP de nomes nativo já estiver ligado, NÃO exibe o nome do Click TP PL para não duplicar!
+                local isMainESPNamesOn = (getgenv().ESPEnabled or (ESPCore and ESPCore:IsEnabled())) and getgenv().ESPNames
+
+                if not isMainESPNamesOn then
+                    if not p.Character:FindFirstChild("ClickTPPLName") then
+                        local head = p.Character:FindFirstChild("Head") or p.Character.PrimaryPart
+                        if head then
+                            local bGui = Instance.new("BillboardGui")
+                            bGui.Name = "ClickTPPLName"
+                            bGui.Adornee = head
+                            bGui.Size = UDim2.new(0, 180, 0, 30)
+                            bGui.StudsOffset = Vector3.new(0, 2.8, 0)
+                            bGui.AlwaysOnTop = true -- Visível através das paredes!
+                            
+                            local text = Instance.new("TextLabel")
+                            text.Size = UDim2.new(1, 0, 1, 0)
+                            text.BackgroundTransparency = 1
+                            text.Font = Enum.Font.GothamBold
+                            text.TextSize = 14
+                            text.TextColor3 = teamColor
+                            text.TextStrokeTransparency = 0
+                            text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                            text.Text = (p.DisplayName or p.Name)
+                            text.Parent = bGui
+                            bGui.Parent = p.Character
+                        end
                     end
+                else
+                    -- Se o ESP principal de nomes estiver ligado, remove qualquer nome do Click TP PL para não ter nomes duplicados
+                    local existingName = p.Character:FindFirstChild("ClickTPPLName")
+                    if existingName then existingName:Destroy() end
                 end
             end
 
