@@ -212,12 +212,12 @@ local function UpdateESP()
         
         -- Atualizar Texto
         local tag = drawings.NameTag
-        local nameFontSize = math.clamp(math.floor(boxHeight * 0.18), 9, 13)
+        local nameFontSize = math.clamp(math.floor(boxHeight * 0.12), 8, 10)
         tag.Visible = true
         tag.Text = player.Name
         tag.Size = nameFontSize
         tag.Color = color
-        tag.Position = Vector2.new(rootPos.X, headPos.Y - (nameFontSize + 3))
+        tag.Position = Vector2.new(rootPos.X, headPos.Y - (nameFontSize + 2))
         
         ::next_iter::
     end
