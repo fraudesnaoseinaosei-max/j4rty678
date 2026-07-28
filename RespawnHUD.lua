@@ -2792,6 +2792,7 @@ function VoidLib:CreateWindow()
             RefreshFavHUD()
         end
     end
+    getgenv().ToggleFavHUD = function() Window:ToggleFavHUD() end
 
     -- Menu de Contexto de Botão Direito (Favoritar)
     local ContextMenuFrame = Instance.new("Frame")
@@ -4111,6 +4112,40 @@ function VoidLib:CreateWindow()
                 return BFrame
             end
 
+            function GroupObj:ActionButton(text, btnText, callback)
+                local AFrame = CreateElementFrame(text)
+                
+                local TLab = Instance.new("TextLabel")
+                TLab.Text = text
+                TLab.Position = UDim2.new(0, 10, 0, 0)
+                TLab.Size = UDim2.new(1, -95, 1, 0)
+                TLab.BackgroundTransparency = 1
+                TLab.Font = Enum.Font.GothamMedium
+                TLab.TextColor3 = Themes.Text
+                TLab.TextSize = 13
+                TLab.TextXAlignment = Enum.TextXAlignment.Left
+                TLab.Parent = AFrame
+                
+                local ActionBtn = Instance.new("TextButton")
+                ActionBtn.Size = UDim2.new(0, 75, 0, 24)
+                ActionBtn.Position = UDim2.new(1, -85, 0.5, -12)
+                ActionBtn.BackgroundColor3 = Themes.Accent
+                ActionBtn.Text = btnText or "Abrir"
+                ActionBtn.Font = Enum.Font.GothamBold
+                ActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                ActionBtn.TextSize = 12
+                ActionBtn.ZIndex = 82
+                ActionBtn.Parent = AFrame
+                local ABC = Instance.new("UICorner"); ABC.CornerRadius = UDim.new(0, 6); ABC.Parent = ActionBtn
+                local ABS = Instance.new("UIStroke"); ABS.Color = Color3.fromRGB(255, 255, 255); ABS.Thickness = 1; ABS.Transparency = 0.8; ABS.Parent = ActionBtn
+
+                ActionBtn.MouseButton1Click:Connect(function()
+                    pcall(callback)
+                end)
+                
+                return AFrame
+            end
+
             function GroupObj:Bind(text, defaultKey, callback)
                 local BFrame = CreateElementFrame()
                 
@@ -5278,9 +5313,11 @@ do
     local Settings = Win:Tab("Configs")
 
     local AccessGroup = Settings:Group("Acessibilidade")
-    AccessGroup:Toggle("Mods Rápidos (Favoritos)", false, function() end, nil, "Abrir", function()
+    AccessGroup:ActionButton("Mods Rápidos (Favoritos)", "Abrir", function()
         if Win and Win.ToggleFavHUD then
             Win:ToggleFavHUD()
+        elseif getgenv().ToggleFavHUD then
+            getgenv().ToggleFavHUD()
         end
     end)
 
