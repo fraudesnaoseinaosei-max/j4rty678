@@ -3975,6 +3975,7 @@ function VoidLib:CreateWindow()
                     GearBtn.Size = UDim2.new(0, 20, 0, 20)
                     GearBtn.Position = UDim2.new(1, -78, 0.5, -10)
                     GearBtn.BackgroundTransparency = 1
+                    GearBtn.ZIndex = 86
                     GearBtn.Image = "rbxassetid://6031280882" -- Ícone de engrenagem
                     GearBtn.ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(150, 150, 160)
                     GearBtn.ImageTransparency = enabled and 0 or 0.3
@@ -4324,7 +4325,7 @@ function VoidLib:CreateWindow()
             end
             
             function GroupObj:Dropdown(text, options, default, callback)
-                local DFrame = CreateElementFrame(text)
+                local DFrame = CreateElementFrame()
                 DFrame.Size = UDim2.new(1, 0, 0, 50) -- Default height closed
                 DFrame.ClipsDescendants = true
                 DFrame.ZIndex = 5 -- Higher ZIndex for dropdown
