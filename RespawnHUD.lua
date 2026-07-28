@@ -746,12 +746,32 @@ local ESPCore = (function()
 
     local function CreateDrawings(playerName)
         if playerDrawings[playerName] then return playerDrawings[playerName] end
+        local invSlots = {}
+        local invTexts = {}
+        for i = 1, 9 do
+            local sq = Drawing.new("Square")
+            sq.Visible = false
+            sq.Thickness = 1
+            sq.Filled = true
+            table.insert(invSlots, sq)
+
+            local txt = Drawing.new("Text")
+            txt.Visible = false
+            txt.Center = true
+            txt.Outline = true
+            txt.OutlineColor = Color3.new(0, 0, 0)
+            txt.Size = 10
+            table.insert(invTexts, txt)
+        end
+
         local drawings = {
             Box = GetDrawingFromPool("Square"), 
             NameTag = GetDrawingFromPool("Text"),
             HealthBg = GetDrawingFromPool("HealthBar"),
             HealthFg = GetDrawingFromPool("HealthBar"),
-            Tracer = GetDrawingFromPool("Line")
+            Tracer = GetDrawingFromPool("Line"),
+            InvSlots = invSlots,
+            InvTexts = invTexts
         }
         playerDrawings[playerName] = drawings
         return drawings
@@ -765,6 +785,12 @@ local ESPCore = (function()
             if drawings.HealthBg then ReturnDrawingToPool("HealthBar", drawings.HealthBg) end
             if drawings.HealthFg then ReturnDrawingToPool("HealthBar", drawings.HealthFg) end
             if drawings.Tracer then ReturnDrawingToPool("Line", drawings.Tracer) end
+            if drawings.InvSlots then
+                for _, s in ipairs(drawings.InvSlots) do pcall(function() s:Remove() end) end
+            end
+            if drawings.InvTexts then
+                for _, t in ipairs(drawings.InvTexts) do pcall(function() t:Remove() end) end
+            end
             playerDrawings[playerName] = nil
         end
     end
@@ -777,6 +803,12 @@ local ESPCore = (function()
                 drawings.HealthBg.Visible = false
                 drawings.HealthFg.Visible = false
                 drawings.Tracer.Visible = false
+                if drawings.InvSlots then
+                    for i = 1, 9 do
+                        drawings.InvSlots[i].Visible = false
+                        drawings.InvTexts[i].Visible = false
+                    end
+                end
             end
             return
         end
@@ -837,6 +869,65 @@ local ESPCore = (function()
                                 drawings.HealthFg.Visible = false
                             end
 
+                            -- HAKI DA OBSERVAÇÃO V2 / ESP INVENTÁRIO (BLOXI FRUITS STYLE)
+                            if getgenv().ESPInventory then
+                                local items = {}
+                                pcall(function()
+                                    -- 1. Item na mão (Tool equipada)
+                                    for _, child in pairs(character:GetChildren()) do
+                                        if child:IsA("Tool") then
+                                            table.insert(items, {Name = child.Name, Equipped = true})
+                                        end
+                                    end
+                                    -- 2. Itens no Backpack (Mochila / Barra rápida)
+                                    local backpack = player:FindFirstChild("Backpack")
+                                    if backpack then
+                                        for _, item in pairs(backpack:GetChildren()) do
+                                            if item:IsA("Tool") and #items < 9 then
+                                                table.insert(items, {Name = item.Name, Equipped = false})
+                                            end
+                                        end
+                                    end
+                                end)
+
+                                local slotSize = 22
+                                local slotSpacing = 4
+                                local totalWidth = (#items * slotSize) + (math.max(0, #items - 1) * slotSpacing)
+                                local startX = rootPos.X - (totalWidth / 2)
+                                local startY = (boxPos.Y + boxHeight) + 8 -- Abaixo do pé do jogador
+
+                                for i = 1, 9 do
+                                    local slotBox = drawings.InvSlots[i]
+                                    local slotText = drawings.InvTexts[i]
+
+                                    if i <= #items then
+                                        local itemData = items[i]
+                                        local posX = startX + (i - 1) * (slotSize + slotSpacing)
+
+                                        slotBox.Visible = true
+                                        slotBox.Size = Vector2.new(slotSize, slotSize)
+                                        slotBox.Position = Vector2.new(posX, startY)
+                                        slotBox.Color = itemData.Equipped and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(35, 35, 45)
+                                        slotBox.Transparency = 0.85
+                                        slotBox.Filled = true
+
+                                        slotText.Visible = true
+                                        slotText.Text = string.sub(itemData.Name, 1, 3) -- 3 primeiras letras do item (ex: M9, Tas, Col)
+                                        slotText.Size = 10
+                                        slotText.Color = itemData.Equipped and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 210)
+                                        slotText.Position = Vector2.new(posX + (slotSize / 2), startY + 5)
+                                    else
+                                        slotBox.Visible = false
+                                        slotText.Visible = false
+                                    end
+                                end
+                            else
+                                for i = 1, 9 do
+                                    drawings.InvSlots[i].Visible = false
+                                    drawings.InvTexts[i].Visible = false
+                                end
+                            end
+
                             if getgenv().ESPTracers then
                                 drawings.Tracer.Visible = true
                                 drawings.Tracer.Color = color
@@ -851,6 +942,7 @@ local ESPCore = (function()
                                 drawings.Box.Visible = false; drawings.NameTag.Visible = false 
                                 drawings.HealthBg.Visible = false; drawings.HealthFg.Visible = false
                                 drawings.Tracer.Visible = false
+                                for i = 1, 9 do drawings.InvSlots[i].Visible = false; drawings.InvTexts[i].Visible = false end
                             end
                         end
                     else
@@ -858,6 +950,7 @@ local ESPCore = (function()
                             drawings.Box.Visible = false; drawings.NameTag.Visible = false 
                             drawings.HealthBg.Visible = false; drawings.HealthFg.Visible = false
                             drawings.Tracer.Visible = false
+                            for i = 1, 9 do drawings.InvSlots[i].Visible = false; drawings.InvTexts[i].Visible = false end
                         end
                     end
                 else
@@ -865,6 +958,7 @@ local ESPCore = (function()
                         drawings.Box.Visible = false; drawings.NameTag.Visible = false 
                         drawings.HealthBg.Visible = false; drawings.HealthFg.Visible = false
                         drawings.Tracer.Visible = false
+                        for i = 1, 9 do drawings.InvSlots[i].Visible = false; drawings.InvTexts[i].Visible = false end
                     end
                 end
             end
@@ -4638,6 +4732,11 @@ do
             getgenv().ESPTracers = v
         end)
         ConfigManager:Register("espTracers", espTracersToggle)
+
+        local espInventoryToggle = sub:Toggle("Mostrar Inventário (Barra)", (getgenv().ESPInventory or false), function(v)
+            getgenv().ESPInventory = v
+        end)
+        ConfigManager:Register("espInventory", espInventoryToggle)
     end)
     ConfigManager:Register("espEnabled", espToggle)
 
