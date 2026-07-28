@@ -2609,8 +2609,24 @@ function VoidLib:CreateWindow()
 
     local Window = {Tabs = {}}
 
-    -- Persistência de Favoritos em Arquivo (DreeZyHub/Favorites.json)
+    -- Persistência de Favoritos e Ordem Personalizada (DreeZyHub/Favorites.json)
     getgenv().FavoritedMods = getgenv().FavoritedMods or {}
+    getgenv().FavoritedOrder = getgenv().FavoritedOrder or {}
+
+    local function EnsureFavoritedOrder()
+        getgenv().FavoritedOrder = getgenv().FavoritedOrder or {}
+        for modName, isFav in pairs(getgenv().FavoritedMods) do
+            if isFav and not table.find(getgenv().FavoritedOrder, modName) then
+                table.insert(getgenv().FavoritedOrder, modName)
+            end
+        end
+        for i = #getgenv().FavoritedOrder, 1, -1 do
+            local mName = getgenv().FavoritedOrder[i]
+            if not getgenv().FavoritedMods[mName] then
+                table.remove(getgenv().FavoritedOrder, i)
+            end
+        end
+    end
 
     local function SaveFavoritesToFile()
         pcall(function()
@@ -2618,7 +2634,12 @@ function VoidLib:CreateWindow()
                 if isfolder and makefolder and not isfolder("DreeZyHub") then
                     makefolder("DreeZyHub")
                 end
-                local dataStr = game:GetService("HttpService"):JSONEncode(getgenv().FavoritedMods or {})
+                EnsureFavoritedOrder()
+                local payload = {
+                    Mods = getgenv().FavoritedMods or {},
+                    Order = getgenv().FavoritedOrder or {}
+                }
+                local dataStr = game:GetService("HttpService"):JSONEncode(payload)
                 writefile("DreeZyHub/Favorites.json", dataStr)
             end
         end)
@@ -2630,7 +2651,16 @@ function VoidLib:CreateWindow()
                 local dataStr = readfile("DreeZyHub/Favorites.json")
                 local decoded = game:GetService("HttpService"):JSONDecode(dataStr)
                 if type(decoded) == "table" then
-                    getgenv().FavoritedMods = decoded
+                    if decoded.Order and type(decoded.Order) == "table" then
+                        getgenv().FavoritedOrder = decoded.Order
+                        getgenv().FavoritedMods = decoded.Mods or {}
+                    else
+                        getgenv().FavoritedMods = decoded
+                        getgenv().FavoritedOrder = {}
+                        for k, v in pairs(decoded) do
+                            if v then table.insert(getgenv().FavoritedOrder, k) end
+                        end
+                    end
                 end
             end
         end)
@@ -2753,25 +2783,100 @@ function VoidLib:CreateWindow()
 
     getgenv().RegisteredSockets = getgenv().RegisteredSockets or {}
 
-    -- Função para atualizar a lista do HUD Mods Rápidos (Favoritos)
+    -- Função para atualizar a lista do HUD Mods Rápidos (Favoritos) com suporte a Drag & Drop Reorder
     local function RefreshFavHUD()
         for _, c in pairs(FavContent:GetChildren()) do
             if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
         end
 
+        EnsureFavoritedOrder()
+
         local count = 0
-        for modName, isFav in pairs(getgenv().FavoritedMods or {}) do
-            if isFav then
+        for idx, modName in ipairs(getgenv().FavoritedOrder or {}) do
+            if getgenv().FavoritedMods[modName] then
                 count = count + 1
                 local desc = getgenv().RegisteredSockets[modName]
 
                 local ItemFrame = Instance.new("Frame")
+                ItemFrame.Name = "FavItem_" .. modName:gsub("%s+", "")
                 ItemFrame.Size = UDim2.new(1, 0, 0, 36)
                 ItemFrame.BackgroundColor3 = Themes.Element
                 ItemFrame.ClipsDescendants = true
+                ItemFrame.LayoutOrder = idx
                 ItemFrame.ZIndex = 888882
                 ItemFrame.Parent = FavContent
                 local IFC = Instance.new("UICorner"); IFC.CornerRadius = UDim.new(0, 6); IFC.Parent = ItemFrame
+
+                local ModNameVal = Instance.new("StringValue")
+                ModNameVal.Name = "ModNameVal"
+                ModNameVal.Value = modName
+                ModNameVal.Parent = ItemFrame
+
+                -- Gatilho de Drag-to-Reorder na área de texto/título
+                local DragHandle = Instance.new("TextButton")
+                DragHandle.Size = UDim2.new(1, -120, 1, 0)
+                DragHandle.Position = UDim2.new(0, 0, 0, 0)
+                DragHandle.BackgroundTransparency = 1
+                DragHandle.Text = ""
+                DragHandle.ZIndex = 888883
+                DragHandle.Parent = ItemFrame
+
+                local isReordering = false
+                local dragConn
+
+                DragHandle.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                        isReordering = true
+                        ItemFrame.ZIndex = 888890
+                        local stroke = Instance.new("UIStroke"); stroke.Name = "DragStroke"; stroke.Color = Themes.Accent; stroke.Thickness = 1.5; stroke.Parent = ItemFrame
+                        
+                        dragConn = UserInputService.InputChanged:Connect(function(mInput)
+                            if isReordering and (mInput.UserInputType == Enum.UserInputType.MouseMovement or mInput.UserInputType == Enum.UserInputType.Touch) then
+                                local mouseY = mInput.Position.Y
+                                local allFrames = {}
+                                for _, child in ipairs(FavContent:GetChildren()) do
+                                    if child:IsA("Frame") and child:FindFirstChild("ModNameVal") then
+                                        table.insert(allFrames, child)
+                                    end
+                                end
+                                table.sort(allFrames, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+
+                                for currentPos, childFrame in ipairs(allFrames) do
+                                    local topY = childFrame.AbsolutePosition.Y
+                                    local meY = childFrame.AbsoluteSize.Y
+                                    if mouseY >= topY and mouseY <= (topY + meY) then
+                                        local oldPos = ItemFrame.LayoutOrder
+                                        if oldPos ~= currentPos then
+                                            local movedMod = table.remove(getgenv().FavoritedOrder, oldPos)
+                                            table.insert(getgenv().FavoritedOrder, currentPos, movedMod)
+
+                                            for newIdx, nameInOrd in ipairs(getgenv().FavoritedOrder) do
+                                                for _, f in ipairs(allFrames) do
+                                                    if f.ModNameVal.Value == nameInOrd then
+                                                        f.LayoutOrder = newIdx
+                                                    end
+                                                end
+                                            end
+                                        end
+                                        break
+                                    end
+                                end
+                            end
+                        end)
+                    end
+                end)
+
+                UserInputService.InputEnded:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                        if isReordering then
+                            isReordering = false
+                            ItemFrame.ZIndex = 888882
+                            if ItemFrame:FindFirstChild("DragStroke") then ItemFrame.DragStroke:Destroy() end
+                            if dragConn then dragConn:Disconnect(); dragConn = nil end
+                            SaveFavoritesToFile()
+                        end
+                    end
+                end)
 
                 if desc and desc.type == "Toggle" then
                     local hasExtra = desc.extraBtnText and type(desc.extraBtnCallback) == "function"
