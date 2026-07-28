@@ -2728,6 +2728,15 @@ function VoidLib:CreateWindow()
             StarBtn.Parent = ContextMenuFrame
 
             local currentSocketModName = nil
+            local isHoveringMenu = false
+
+            ContextMenuFrame.MouseEnter:Connect(function()
+                isHoveringMenu = true
+            end)
+
+            ContextMenuFrame.MouseLeave:Connect(function()
+                isHoveringMenu = false
+            end)
 
             StarBtn.MouseButton1Click:Connect(function()
                 if currentSocketModName then
@@ -2738,21 +2747,17 @@ function VoidLib:CreateWindow()
                     
                     game:GetService("StarterGui"):SetCore("SendNotification", {
                         Title = "DreeZy HUB",
-                        Text = isFav and ("★ " .. currentSocketModName .. " favoritados!") or ("☆ " .. currentSocketModName .. " removido dos favoritos!"),
+                        Text = isFav and ("★ " .. currentSocketModName .. " favoritado!") or ("☆ " .. currentSocketModName .. " removido dos favoritos!"),
                         Duration = 2
                     })
                 end
             end)
 
-            -- Fechar o menu de contexto se clicar fora (seja dentro ou fora do HUB)
+            -- Fechar o menu de contexto APENAS se o usuário clicar FORA da aba (seja dentro do HUB ou na tela do jogo)
             UserInputService.InputBegan:Connect(function(input, gpe)
                 if ContextMenuFrame.Visible then
                     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
-                        local mousePos = UserInputService:GetMouseLocation()
-                        local menuAbsPos = ContextMenuFrame.AbsolutePosition
-                        local menuAbsSize = ContextMenuFrame.AbsoluteSize
-                        
-                        if mousePos.X < menuAbsPos.X or mousePos.X > menuAbsPos.X + menuAbsSize.X or mousePos.Y < menuAbsPos.Y or mousePos.Y > menuAbsPos.Y + menuAbsSize.Y then
+                        if not isHoveringMenu then
                             ContextMenuFrame.Visible = false
                         end
                     end
