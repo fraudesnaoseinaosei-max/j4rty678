@@ -2689,13 +2689,117 @@ function VoidLib:CreateWindow()
             
             local GroupObj = {}
             
+            -- Menu de Contexto de Botão Direito (Favoritar)
+            getgenv().FavoritedMods = getgenv().FavoritedMods or {}
+
+            local ContextMenuFrame = Instance.new("Frame")
+            ContextMenuFrame.Name = "DreeZyContextMenu"
+            ContextMenuFrame.Size = UDim2.new(0, 160, 0, 42)
+            ContextMenuFrame.BackgroundColor3 = Color3.fromRGB(26, 24, 34)
+            ContextMenuFrame.BorderSizePixel = 0
+            ContextMenuFrame.ZIndex = 999990
+            ContextMenuFrame.Visible = false
+            ContextMenuFrame.Parent = ScreenGui
+
+            local ContextCorner = Instance.new("UICorner"); ContextCorner.CornerRadius = UDim.new(0, 8); ContextCorner.Parent = ContextMenuFrame
+            local ContextStroke = Instance.new("UIStroke"); ContextStroke.Color = Themes.Accent; ContextStroke.Thickness = 1; ContextStroke.Transparency = 0.4; ContextStroke.Parent = ContextMenuFrame
+
+            local ContextLab = Instance.new("TextLabel")
+            ContextLab.Text = "Favoritar"
+            ContextLab.Size = UDim2.new(0, 95, 1, 0)
+            ContextLab.Position = UDim2.new(0, 12, 0, 0)
+            ContextLab.BackgroundTransparency = 1
+            ContextLab.Font = Enum.Font.GothamBold
+            ContextLab.TextColor3 = Themes.Text
+            ContextLab.TextSize = 13
+            ContextLab.TextXAlignment = Enum.TextXAlignment.Left
+            ContextLab.ZIndex = 999991
+            ContextLab.Parent = ContextMenuFrame
+
+            local StarBtn = Instance.new("TextButton")
+            StarBtn.Size = UDim2.new(0, 26, 0, 26)
+            StarBtn.Position = UDim2.new(1, -34, 0.5, -13)
+            StarBtn.BackgroundTransparency = 1
+            StarBtn.Text = "★"
+            StarBtn.Font = Enum.Font.GothamBold
+            StarBtn.TextSize = 18
+            StarBtn.TextColor3 = Color3.fromRGB(140, 140, 150) -- Estrelinha cinza por padrão!
+            StarBtn.ZIndex = 999991
+            StarBtn.Parent = ContextMenuFrame
+
+            local currentSocketModName = nil
+
+            StarBtn.MouseButton1Click:Connect(function()
+                if currentSocketModName then
+                    local isFav = not (getgenv().FavoritedMods[currentSocketModName] or false)
+                    getgenv().FavoritedMods[currentSocketModName] = isFav
+                    
+                    StarBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(140, 140, 150) -- Amarelinha quando favoritado!
+                    
+                    game:GetService("StarterGui"):SetCore("SendNotification", {
+                        Title = "DreeZy HUB",
+                        Text = isFav and ("★ " .. currentSocketModName .. " favoritados!") or ("☆ " .. currentSocketModName .. " removido dos favoritos!"),
+                        Duration = 2
+                    })
+                end
+            end)
+
+            -- Fechar o menu de contexto se clicar fora (seja dentro ou fora do HUB)
+            UserInputService.InputBegan:Connect(function(input, gpe)
+                if ContextMenuFrame.Visible then
+                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
+                        local mousePos = UserInputService:GetMouseLocation()
+                        local menuAbsPos = ContextMenuFrame.AbsolutePosition
+                        local menuAbsSize = ContextMenuFrame.AbsoluteSize
+                        
+                        if mousePos.X < menuAbsPos.X or mousePos.X > menuAbsPos.X + menuAbsSize.X or mousePos.Y < menuAbsPos.Y or mousePos.Y > menuAbsPos.Y + menuAbsSize.Y then
+                            ContextMenuFrame.Visible = false
+                        end
+                    end
+                end
+            end)
+
+            local function AttachSocketInteractions(EFrame, modName)
+                local SocketTrigger = Instance.new("TextButton")
+                SocketTrigger.Size = UDim2.new(1, 0, 1, 0)
+                SocketTrigger.BackgroundTransparency = 1
+                SocketTrigger.Text = ""
+                SocketTrigger.ZIndex = 81
+                SocketTrigger.Parent = EFrame
+
+                SocketTrigger.MouseEnter:Connect(function()
+                    pcall(function()
+                        game:GetService("Players").LocalPlayer:GetMouse().Icon = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
+                    end)
+                end)
+
+                SocketTrigger.MouseLeave:Connect(function()
+                    pcall(function()
+                        game:GetService("Players").LocalPlayer:GetMouse().Icon = ""
+                    end)
+                end)
+
+                SocketTrigger.MouseButton2Click:Connect(function()
+                    currentSocketModName = modName or "Mod"
+                    local isFav = getgenv().FavoritedMods[currentSocketModName] or false
+                    StarBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(140, 140, 150)
+
+                    local mousePos = UserInputService:GetMouseLocation()
+                    ContextMenuFrame.Position = UDim2.new(0, mousePos.X + 5, 0, mousePos.Y - 20)
+                    ContextMenuFrame.Visible = true
+                end)
+            end
+
             -- Helper for Element Backgrounds
-            local function CreateElementFrame()
+            local function CreateElementFrame(modName)
                 local EFrame = Instance.new("Frame")
                 EFrame.Size = UDim2.new(1, 0, 0, 36)
                 EFrame.BackgroundColor3 = Themes.Element
                 EFrame.Parent = Container
                 local EC = Instance.new("UICorner"); EC.CornerRadius = UDim.new(0, 6); EC.Parent = EFrame
+                if modName then
+                    AttachSocketInteractions(EFrame, modName)
+                end
                 return EFrame
             end
 
@@ -3462,7 +3566,7 @@ function VoidLib:CreateWindow()
             end
 
             function GroupObj:Toggle(text, default, callback, subConfigCallback, extraBtnText, extraBtnCallback, extraBtn2Text, extraBtn2Callback)
-                local TFrame = CreateElementFrame()
+                local TFrame = CreateElementFrame(text)
                 local hasSub = type(subConfigCallback) == "function"
                 local hasExtra = extraBtnText and type(extraBtnCallback) == "function"
                 local hasExtra2 = extraBtn2Text and type(extraBtn2Callback) == "function"
@@ -3594,7 +3698,7 @@ function VoidLib:CreateWindow()
             end
 
             function GroupObj:ToggleKeybind(text, defaultState, defaultKey, toggleCallback, keybindCallback)
-                local TFrame = CreateElementFrame()
+                local TFrame = CreateElementFrame(text)
                 
                 local keybindOffset = 95
                 local TLab = Instance.new("TextLabel")
@@ -3690,7 +3794,7 @@ function VoidLib:CreateWindow()
             end
             
             function GroupObj:Slider(text, min, max, default, callback, valueFormatter)
-                local SFrame = CreateElementFrame()
+                local SFrame = CreateElementFrame(text)
                 SFrame.Size = UDim2.new(1, 0, 0, 50)
                 
                 local SLab = Instance.new("TextLabel")
@@ -3839,7 +3943,7 @@ function VoidLib:CreateWindow()
             end
             
             function GroupObj:Dropdown(text, options, default, callback)
-                local DFrame = CreateElementFrame()
+                local DFrame = CreateElementFrame(text)
                 DFrame.Size = UDim2.new(1, 0, 0, 50) -- Default height closed
                 DFrame.ClipsDescendants = true
                 DFrame.ZIndex = 5 -- Higher ZIndex for dropdown
