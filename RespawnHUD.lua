@@ -2695,7 +2695,7 @@ function VoidLib:CreateWindow()
     MakeDraggable(FavHeader, FavHUDFrame)
 
     local FavTitle = Instance.new("TextLabel")
-    FavTitle.Text = "★ Mods Rápidos (Favoritos)"
+    FavTitle.Text = "★ Acesso Rápido (Favoritos)"
     FavTitle.Font = Enum.Font.GothamBold
     FavTitle.TextSize = 13
     FavTitle.TextColor3 = Themes.Accent
@@ -2783,7 +2783,7 @@ function VoidLib:CreateWindow()
 
     getgenv().RegisteredSockets = getgenv().RegisteredSockets or {}
 
-    -- Função para atualizar a lista do HUD Mods Rápidos (Favoritos) com suporte a Drag & Drop Reorder
+    -- Função para atualizar a lista do HUD Acesso Rápido (Favoritos) com suporte a Drag & Drop Reorder
     local function RefreshFavHUD()
         for _, c in pairs(FavContent:GetChildren()) do
             if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
@@ -4348,8 +4348,8 @@ function VoidLib:CreateWindow()
                 return BFrame
             end
 
-            function GroupObj:ActionButton(text, btnText, callback)
-                local AFrame = CreateElementFrame(text)
+            function GroupObj:ActionButton(text, btnText, callback, canFavorite)
+                local AFrame = (canFavorite == false) and CreateElementFrame(nil) or CreateElementFrame(text)
                 
                 local TLab = Instance.new("TextLabel")
                 TLab.Text = text
@@ -5549,13 +5549,13 @@ do
     local Settings = Win:Tab("Configs")
 
     local AccessGroup = Settings:Group("Acessibilidade")
-    AccessGroup:ActionButton("Mods Rápidos (Favoritos)", "Abrir", function()
+    AccessGroup:ActionButton("Acesso Rápido (Favoritos)", "Abrir", function()
         if Win and Win.ToggleFavHUD then
             Win:ToggleFavHUD()
         elseif getgenv().ToggleFavHUD then
             getgenv().ToggleFavHUD()
         end
-    end)
+    end, false)
 
     local ManagerGroup = Settings:Group("Gerenciamento")
 
