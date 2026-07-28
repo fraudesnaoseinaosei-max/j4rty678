@@ -2302,23 +2302,24 @@ function VoidLib:CreateWindow()
         end
     end)
     
-    -- Mobile & Desktop Draggable Helper com Trava Única de Arraste
-    local function MakeDraggable(obj)
+    -- Mobile & Desktop Draggable Helper com Trava Única de Arraste por Header/Barra
+    local function MakeDraggable(dragHandle, targetFrame)
+        targetFrame = targetFrame or dragHandle
         local dragging, dragInput, dragStart, startPos
         
-        obj.InputBegan:Connect(function(input)
+        dragHandle.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                if getgenv().CurrentlyDraggingObj == nil or getgenv().CurrentlyDraggingObj == obj then
-                    getgenv().CurrentlyDraggingObj = obj
+                if getgenv().CurrentlyDraggingObj == nil or getgenv().CurrentlyDraggingObj == targetFrame then
+                    getgenv().CurrentlyDraggingObj = targetFrame
                     dragging = true
                     dragStart = input.Position
-                    startPos = obj.Position
+                    startPos = targetFrame.Position
                     
                     local conn
                     conn = input.Changed:Connect(function()
                         if input.UserInputState == Enum.UserInputState.End then
                             dragging = false
-                            if getgenv().CurrentlyDraggingObj == obj then
+                            if getgenv().CurrentlyDraggingObj == targetFrame then
                                 getgenv().CurrentlyDraggingObj = nil
                             end
                             if conn then conn:Disconnect() end
@@ -2328,22 +2329,22 @@ function VoidLib:CreateWindow()
             end
         end)
         
-        obj.InputChanged:Connect(function(input)
+        dragHandle.InputChanged:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
                 dragInput = input
             end
         end)
         
         UIS.InputChanged:Connect(function(input)
-            if input == dragInput and dragging and getgenv().CurrentlyDraggingObj == obj then
+            if input == dragInput and dragging and getgenv().CurrentlyDraggingObj == targetFrame then
                 local delta = input.Position - dragStart
-                obj.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+                targetFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
             end
         end)
 
         UIS.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                if getgenv().CurrentlyDraggingObj == obj then
+                if getgenv().CurrentlyDraggingObj == targetFrame then
                     dragging = false
                     getgenv().CurrentlyDraggingObj = nil
                 end
@@ -2394,7 +2395,16 @@ function VoidLib:CreateWindow()
     MainStroke.Thickness = 1
     MainStroke.Parent = Main
     
-    MakeDraggable(Main)
+    -- Barra de Arraste Superior Exclusiva do Main HUB (Sem botões X/Minimizar)
+    local MainTopDragBar = Instance.new("Frame")
+    MainTopDragBar.Name = "MainTopDragBar"
+    MainTopDragBar.Size = UDim2.new(1, 0, 0, 32)
+    MainTopDragBar.Position = UDim2.new(0, 0, 0, 0)
+    MainTopDragBar.BackgroundTransparency = 1
+    MainTopDragBar.ZIndex = 95
+    MainTopDragBar.Parent = Main
+
+    MakeDraggable(MainTopDragBar, Main)
 
     -- Snowfall Effect (Enhanced)
     local SnowContainer = Instance.new("Frame")
@@ -2642,8 +2652,6 @@ function VoidLib:CreateWindow()
     local FavCorner = Instance.new("UICorner"); FavCorner.CornerRadius = UDim.new(0, 10); FavCorner.Parent = FavHUDFrame
     local FavStroke = Instance.new("UIStroke"); FavStroke.Color = Themes.Accent; FavStroke.Thickness = 1; FavStroke.Transparency = 0.4; FavStroke.Parent = FavHUDFrame
 
-    MakeDraggable(FavHUDFrame)
-
     -- Header do HUD
     local FavHeader = Instance.new("Frame")
     FavHeader.Size = UDim2.new(1, 0, 0, 36)
@@ -2653,6 +2661,8 @@ function VoidLib:CreateWindow()
     FavHeader.Parent = FavHUDFrame
     local FHC = Instance.new("UICorner"); FHC.CornerRadius = UDim.new(0, 10); FHC.Parent = FavHeader
     local FHF = Instance.new("Frame"); FHF.Size = UDim2.new(1, 0, 0, 10); FHF.Position = UDim2.new(0, 0, 1, -10); FHF.BackgroundColor3 = Themes.Sidebar; FHF.BorderSizePixel = 0; FHF.ZIndex = 888881; FHF.Parent = FavHeader
+
+    MakeDraggable(FavHeader, FavHUDFrame)
 
     local FavTitle = Instance.new("TextLabel")
     FavTitle.Text = "★ Mods Rápidos (Favoritos)"
@@ -3052,8 +3062,6 @@ function VoidLib:CreateWindow()
                 local SubCorner = Instance.new("UICorner"); SubCorner.CornerRadius = UDim.new(0, 10); SubCorner.Parent = SubWindowFrame
                 local SubStroke = Instance.new("UIStroke"); SubStroke.Color = Themes.Accent; SubStroke.Transparency = 0.4; SubStroke.Thickness = 1; SubStroke.Parent = SubWindowFrame
 
-                MakeDraggable(SubWindowFrame)
-
                 -- Header do Hub Secundário
                 local Header = Instance.new("Frame")
                 Header.Size = UDim2.new(1, 0, 0, 40)
@@ -3061,6 +3069,8 @@ function VoidLib:CreateWindow()
                 Header.BorderSizePixel = 0
                 Header.ZIndex = 81
                 Header.Parent = SubWindowFrame
+
+                MakeDraggable(Header, SubWindowFrame)
                 local HeaderCorner = Instance.new("UICorner"); HeaderCorner.CornerRadius = UDim.new(0, 10); HeaderCorner.Parent = Header
                 local HeaderFix = Instance.new("Frame"); HeaderFix.Size = UDim2.new(1, 0, 0, 10); HeaderFix.Position = UDim2.new(0, 0, 1, -10); HeaderFix.BackgroundColor3 = Themes.Sidebar; HeaderFix.BorderSizePixel = 0; HeaderFix.ZIndex = 81; HeaderFix.Parent = Header
 
