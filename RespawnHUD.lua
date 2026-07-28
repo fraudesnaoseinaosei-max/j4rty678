@@ -2582,6 +2582,323 @@ function VoidLib:CreateWindow()
 
     local Window = {Tabs = {}}
 
+    -- Persistência de Favoritos em Arquivo (DreeZyHub/Favorites.json)
+    getgenv().FavoritedMods = getgenv().FavoritedMods or {}
+
+    local function SaveFavoritesToFile()
+        pcall(function()
+            if writefile then
+                if isfolder and makefolder and not isfolder("DreeZyHub") then
+                    makefolder("DreeZyHub")
+                end
+                local dataStr = game:GetService("HttpService"):JSONEncode(getgenv().FavoritedMods or {})
+                writefile("DreeZyHub/Favorites.json", dataStr)
+            end
+        end)
+    end
+
+    local function LoadFavoritesFromFile()
+        pcall(function()
+            if isfile and readfile and isfile("DreeZyHub/Favorites.json") then
+                local dataStr = readfile("DreeZyHub/Favorites.json")
+                local decoded = game:GetService("HttpService"):JSONDecode(dataStr)
+                if type(decoded) == "table" then
+                    getgenv().FavoritedMods = decoded
+                end
+            end
+        end)
+    end
+
+    LoadFavoritesFromFile()
+
+    -- HUD Flutuante Redimensionável dos Mods Favoritos
+    local FavHUDFrame = Instance.new("Frame")
+    FavHUDFrame.Name = "DreeZyFavHUD"
+    FavHUDFrame.Size = UDim2.new(0, 320, 0, 240)
+    FavHUDFrame.Position = UDim2.new(0.5, -160, 0.4, -120)
+    FavHUDFrame.BackgroundColor3 = Themes.Background
+    FavHUDFrame.BorderSizePixel = 0
+    FavHUDFrame.ZIndex = 888880
+    FavHUDFrame.Visible = false
+    FavHUDFrame.Parent = ScreenGui
+
+    local FavCorner = Instance.new("UICorner"); FavCorner.CornerRadius = UDim.new(0, 10); FavCorner.Parent = FavHUDFrame
+    local FavStroke = Instance.new("UIStroke"); FavStroke.Color = Themes.Accent; FavStroke.Thickness = 1; FavStroke.Transparency = 0.4; FavStroke.Parent = FavHUDFrame
+
+    MakeDraggable(FavHUDFrame)
+
+    -- Header do HUD
+    local FavHeader = Instance.new("Frame")
+    FavHeader.Size = UDim2.new(1, 0, 0, 36)
+    FavHeader.BackgroundColor3 = Themes.Sidebar
+    FavHeader.BorderSizePixel = 0
+    FavHeader.ZIndex = 888881
+    FavHeader.Parent = FavHUDFrame
+    local FHC = Instance.new("UICorner"); FHC.CornerRadius = UDim.new(0, 10); FHC.Parent = FavHeader
+    local FHF = Instance.new("Frame"); FHF.Size = UDim2.new(1, 0, 0, 10); FHF.Position = UDim2.new(0, 0, 1, -10); FHF.BackgroundColor3 = Themes.Sidebar; FHF.BorderSizePixel = 0; FHF.ZIndex = 888881; FHF.Parent = FavHeader
+
+    local FavTitle = Instance.new("TextLabel")
+    FavTitle.Text = "★ Mods Rápidos (Favoritos)"
+    FavTitle.Font = Enum.Font.GothamBold
+    FavTitle.TextSize = 13
+    FavTitle.TextColor3 = Themes.Accent
+    FavTitle.Size = UDim2.new(1, -50, 1, 0)
+    FavTitle.Position = UDim2.new(0, 12, 0, 0)
+    FavTitle.BackgroundTransparency = 1
+    FavTitle.TextXAlignment = Enum.TextXAlignment.Left
+    FavTitle.ZIndex = 888882
+    FavTitle.Parent = FavHeader
+
+    -- Botão X de Fechar
+    local FavCloseBtn = Instance.new("TextButton")
+    FavCloseBtn.Text = "X"
+    FavCloseBtn.Font = Enum.Font.GothamBold
+    FavCloseBtn.TextSize = 12
+    FavCloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+    FavCloseBtn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
+    FavCloseBtn.Size = UDim2.new(0, 22, 0, 22)
+    FavCloseBtn.Position = UDim2.new(1, -28, 0.5, -11)
+    FavCloseBtn.ZIndex = 888883
+    FavCloseBtn.Parent = FavHeader
+    local FCC = Instance.new("UICorner"); FCC.CornerRadius = UDim.new(0, 6); FCC.Parent = FavCloseBtn
+    FavCloseBtn.MouseButton1Click:Connect(function() FavHUDFrame.Visible = false end)
+
+    -- Container de Rolagem dos Elementos Favoritados
+    local FavContent = Instance.new("ScrollingFrame")
+    FavContent.Size = UDim2.new(1, -16, 1, -48)
+    FavContent.Position = UDim2.new(0, 8, 0, 40)
+    FavContent.BackgroundTransparency = 1
+    FavContent.BorderSizePixel = 0
+    FavContent.ScrollBarThickness = 2
+    FavContent.ScrollBarImageColor3 = Themes.Accent
+    FavContent.ZIndex = 888881
+    FavContent.Parent = FavHUDFrame
+
+    local FavLayout = Instance.new("UIListLayout"); FavLayout.Padding = UDim.new(0, 6); FavLayout.SortOrder = Enum.SortOrder.LayoutOrder; FavLayout.Parent = FavContent
+    local FavPad = Instance.new("UIPadding"); FavPad.PaddingTop = UDim.new(0, 4); FavPad.PaddingBottom = UDim.new(0, 8); FavPad.PaddingLeft = UDim.new(0, 4); FavPad.PaddingRight = UDim.new(0, 8); FavPad.Parent = FavContent
+
+    FavLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        FavContent.CanvasSize = UDim2.new(0, 0, 0, FavLayout.AbsoluteContentSize.Y + 12)
+    end)
+
+    -- 2 Rabiscos // no canto inferior direito para redimensionar
+    local ResizeGrip = Instance.new("TextButton")
+    ResizeGrip.Text = "//"
+    ResizeGrip.Font = Enum.Font.GothamBold
+    ResizeGrip.TextSize = 12
+    ResizeGrip.TextColor3 = Themes.Accent
+    ResizeGrip.Size = UDim2.new(0, 20, 0, 20)
+    ResizeGrip.Position = UDim2.new(1, -20, 1, -20)
+    ResizeGrip.BackgroundTransparency = 1
+    ResizeGrip.ZIndex = 888885
+    ResizeGrip.Parent = FavHUDFrame
+
+    -- Lógica de Redimensionamento ao arrastar os 2 rabiscos (ResizeGrip)
+    local isResizing = false
+    local startMousePos, startSize
+
+    ResizeGrip.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isResizing = true
+            startMousePos = UserInputService:GetMouseLocation()
+            startSize = FavHUDFrame.AbsoluteSize
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if isResizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local currentMouse = UserInputService:GetMouseLocation()
+            local deltaX = currentMouse.X - startMousePos.X
+            local deltaY = currentMouse.Y - startMousePos.Y
+
+            local newW = math.max(220, startSize.X + deltaX)
+            local newH = math.max(140, startSize.Y + deltaY)
+
+            FavHUDFrame.Size = UDim2.new(0, newW, 0, newH)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isResizing = false
+        end
+    end)
+
+    -- Função para atualizar a lista do HUD Mods Rápidos (Favoritos)
+    local function RefreshFavHUD()
+        for _, c in pairs(FavContent:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+
+        local count = 0
+        for modName, isFav in pairs(getgenv().FavoritedMods or {}) do
+            if isFav then
+                count = count + 1
+                local ItemFrame = Instance.new("Frame")
+                ItemFrame.Size = UDim2.new(1, 0, 0, 36)
+                ItemFrame.BackgroundColor3 = Themes.Element
+                ItemFrame.ZIndex = 888882
+                ItemFrame.Parent = FavContent
+                local IFC = Instance.new("UICorner"); IFC.CornerRadius = UDim.new(0, 6); IFC.Parent = ItemFrame
+
+                local ItemLab = Instance.new("TextLabel")
+                ItemLab.Text = "★ " .. modName
+                ItemLab.Size = UDim2.new(1, -40, 1, 0)
+                ItemLab.Position = UDim2.new(0, 10, 0, 0)
+                ItemLab.BackgroundTransparency = 1
+                ItemLab.Font = Enum.Font.GothamMedium
+                ItemLab.TextColor3 = Themes.Text
+                ItemLab.TextSize = 12
+                ItemLab.TextXAlignment = Enum.TextXAlignment.Left
+                ItemLab.ZIndex = 888883
+                ItemLab.Parent = ItemFrame
+
+                local DelFav = Instance.new("TextButton")
+                DelFav.Text = "x"
+                DelFav.Size = UDim2.new(0, 24, 0, 24)
+                DelFav.Position = UDim2.new(1, -30, 0.5, -12)
+                DelFav.BackgroundTransparency = 1
+                DelFav.TextColor3 = Color3.fromRGB(220, 80, 80)
+                DelFav.Font = Enum.Font.GothamBold
+                DelFav.TextSize = 14
+                DelFav.ZIndex = 888883
+                DelFav.Parent = ItemFrame
+
+                DelFav.MouseButton1Click:Connect(function()
+                    getgenv().FavoritedMods[modName] = false
+                    SaveFavoritesToFile()
+                    RefreshFavHUD()
+                end)
+            end
+        end
+
+        if count == 0 then
+            local EmptyLab = Instance.new("TextLabel")
+            EmptyLab.Text = "Nenhum mod favoritado ainda!\n(Clique com o Botão Direito em qualquer mod para favoritar)"
+            EmptyLab.Size = UDim2.new(1, 0, 0, 80)
+            EmptyLab.BackgroundTransparency = 1
+            EmptyLab.Font = Enum.Font.Gotham
+            EmptyLab.TextColor3 = Themes.TextDim
+            EmptyLab.TextSize = 12
+            EmptyLab.TextWrapped = true
+            EmptyLab.ZIndex = 888882
+            EmptyLab.Parent = FavContent
+        end
+    end
+
+    function Window:ToggleFavHUD()
+        FavHUDFrame.Visible = not FavHUDFrame.Visible
+        if FavHUDFrame.Visible then
+            RefreshFavHUD()
+        end
+    end
+
+    -- Menu de Contexto de Botão Direito (Favoritar)
+    local ContextMenuFrame = Instance.new("Frame")
+    ContextMenuFrame.Name = "DreeZyContextMenu"
+    ContextMenuFrame.Size = UDim2.new(0, 160, 0, 42)
+    ContextMenuFrame.BackgroundColor3 = Color3.fromRGB(26, 24, 34)
+    ContextMenuFrame.BorderSizePixel = 0
+    ContextMenuFrame.ZIndex = 999990
+    ContextMenuFrame.Visible = false
+    ContextMenuFrame.Parent = ScreenGui
+
+    local ContextCorner = Instance.new("UICorner"); ContextCorner.CornerRadius = UDim.new(0, 8); ContextCorner.Parent = ContextMenuFrame
+    local ContextStroke = Instance.new("UIStroke"); ContextStroke.Color = Themes.Accent; ContextStroke.Thickness = 1; ContextStroke.Transparency = 0.4; ContextStroke.Parent = ContextMenuFrame
+
+    local ContextLab = Instance.new("TextLabel")
+    ContextLab.Text = "Favoritar"
+    ContextLab.Size = UDim2.new(0, 95, 1, 0)
+    ContextLab.Position = UDim2.new(0, 12, 0, 0)
+    ContextLab.BackgroundTransparency = 1
+    ContextLab.Font = Enum.Font.GothamBold
+    ContextLab.TextColor3 = Themes.Text
+    ContextLab.TextSize = 13
+    ContextLab.TextXAlignment = Enum.TextXAlignment.Left
+    ContextLab.ZIndex = 999991
+    ContextLab.Parent = ContextMenuFrame
+
+    local StarBtn = Instance.new("TextButton")
+    StarBtn.Size = UDim2.new(0, 26, 0, 26)
+    StarBtn.Position = UDim2.new(1, -34, 0.5, -13)
+    StarBtn.BackgroundTransparency = 1
+    StarBtn.Text = "★"
+    StarBtn.Font = Enum.Font.GothamBold
+    StarBtn.TextSize = 18
+    StarBtn.TextColor3 = Color3.fromRGB(140, 140, 150) -- Estrelinha cinza por padrão!
+    StarBtn.ZIndex = 999991
+    StarBtn.Parent = ContextMenuFrame
+
+    local currentSocketModName = nil
+    local isHoveringMenu = false
+
+    ContextMenuFrame.MouseEnter:Connect(function()
+        isHoveringMenu = true
+    end)
+
+    ContextMenuFrame.MouseLeave:Connect(function()
+        isHoveringMenu = false
+    end)
+
+    StarBtn.MouseButton1Click:Connect(function()
+        if currentSocketModName then
+            local isFav = not (getgenv().FavoritedMods[currentSocketModName] or false)
+            getgenv().FavoritedMods[currentSocketModName] = isFav
+            
+            StarBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(140, 140, 150)
+            SaveFavoritesToFile()
+            if FavHUDFrame.Visible then RefreshFavHUD() end
+
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "DreeZy HUB",
+                Text = isFav and ("★ " .. currentSocketModName .. " favoritado!") or ("☆ " .. currentSocketModName .. " removido dos favoritos!"),
+                Duration = 2
+            })
+        end
+    end)
+
+    -- Fechar o menu de contexto APENAS se o usuário clicar FORA da aba (seja dentro do HUB ou na tela do jogo)
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if ContextMenuFrame.Visible then
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
+                if not isHoveringMenu then
+                    ContextMenuFrame.Visible = false
+                end
+            end
+        end
+    end)
+
+    local function AttachSocketInteractions(EFrame, modName)
+        local SocketTrigger = Instance.new("TextButton")
+        SocketTrigger.Size = UDim2.new(1, 0, 1, 0)
+        SocketTrigger.BackgroundTransparency = 1
+        SocketTrigger.Text = ""
+        SocketTrigger.ZIndex = 81
+        SocketTrigger.Parent = EFrame
+
+        SocketTrigger.MouseEnter:Connect(function()
+            pcall(function()
+                game:GetService("Players").LocalPlayer:GetMouse().Icon = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
+            end)
+        end)
+
+        SocketTrigger.MouseLeave:Connect(function()
+            pcall(function()
+                game:GetService("Players").LocalPlayer:GetMouse().Icon = ""
+            end)
+        end)
+
+        SocketTrigger.MouseButton2Click:Connect(function()
+            currentSocketModName = modName or "Mod"
+            local isFav = getgenv().FavoritedMods[currentSocketModName] or false
+            StarBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(140, 140, 150)
+
+            local mousePos = UserInputService:GetMouseLocation()
+            ContextMenuFrame.Position = UDim2.new(0, mousePos.X + 5, 0, mousePos.Y - 20)
+            ContextMenuFrame.Visible = true
+        end)
+    end
+
     function Window:Tab(name)
         local TabBtn = Instance.new("TextButton")
         TabBtn.Size = UDim2.new(1, -20, 0, 35)
@@ -2688,323 +3005,6 @@ function VoidLib:CreateWindow()
             end)
             
             local GroupObj = {}
-            
-            -- Persistência de Favoritos em Arquivo (DreeZyHub/Favorites.json)
-            getgenv().FavoritedMods = getgenv().FavoritedMods or {}
-
-            local function SaveFavoritesToFile()
-                pcall(function()
-                    if writefile then
-                        if isfolder and makefolder and not isfolder("DreeZyHub") then
-                            makefolder("DreeZyHub")
-                        end
-                        local dataStr = game:GetService("HttpService"):JSONEncode(getgenv().FavoritedMods or {})
-                        writefile("DreeZyHub/Favorites.json", dataStr)
-                    end
-                end)
-            end
-
-            local function LoadFavoritesFromFile()
-                pcall(function()
-                    if isfile and readfile and isfile("DreeZyHub/Favorites.json") then
-                        local dataStr = readfile("DreeZyHub/Favorites.json")
-                        local decoded = game:GetService("HttpService"):JSONDecode(dataStr)
-                        if type(decoded) == "table" then
-                            getgenv().FavoritedMods = decoded
-                        end
-                    end
-                end)
-            end
-
-            LoadFavoritesFromFile()
-
-            -- HUD Flutuante Redimensionável dos Mods Favoritos
-            local FavHUDFrame = Instance.new("Frame")
-            FavHUDFrame.Name = "DreeZyFavHUD"
-            FavHUDFrame.Size = UDim2.new(0, 320, 0, 240)
-            FavHUDFrame.Position = UDim2.new(0.5, -160, 0.4, -120)
-            FavHUDFrame.BackgroundColor3 = Themes.Background
-            FavHUDFrame.BorderSizePixel = 0
-            FavHUDFrame.ZIndex = 888880
-            FavHUDFrame.Visible = false
-            FavHUDFrame.Parent = ScreenGui
-
-            local FavCorner = Instance.new("UICorner"); FavCorner.CornerRadius = UDim.new(0, 10); FavCorner.Parent = FavHUDFrame
-            local FavStroke = Instance.new("UIStroke"); FavStroke.Color = Themes.Accent; FavStroke.Thickness = 1; FavStroke.Transparency = 0.4; FavStroke.Parent = FavHUDFrame
-
-            MakeDraggable(FavHUDFrame)
-
-            -- Header do HUD
-            local FavHeader = Instance.new("Frame")
-            FavHeader.Size = UDim2.new(1, 0, 0, 36)
-            FavHeader.BackgroundColor3 = Themes.Sidebar
-            FavHeader.BorderSizePixel = 0
-            FavHeader.ZIndex = 888881
-            FavHeader.Parent = FavHUDFrame
-            local FHC = Instance.new("UICorner"); FHC.CornerRadius = UDim.new(0, 10); FHC.Parent = FavHeader
-            local FHF = Instance.new("Frame"); FHF.Size = UDim2.new(1, 0, 0, 10); FHF.Position = UDim2.new(0, 0, 1, -10); FHF.BackgroundColor3 = Themes.Sidebar; FHF.BorderSizePixel = 0; FHF.ZIndex = 888881; FHF.Parent = FavHeader
-
-            local FavTitle = Instance.new("TextLabel")
-            FavTitle.Text = "★ Mods Rápidos (Favoritos)"
-            FavTitle.Font = Enum.Font.GothamBold
-            FavTitle.TextSize = 13
-            FavTitle.TextColor3 = Themes.Accent
-            FavTitle.Size = UDim2.new(1, -50, 1, 0)
-            FavTitle.Position = UDim2.new(0, 12, 0, 0)
-            FavTitle.BackgroundTransparency = 1
-            FavTitle.TextXAlignment = Enum.TextXAlignment.Left
-            FavTitle.ZIndex = 888882
-            FavTitle.Parent = FavHeader
-
-            -- Botão X de Fechar
-            local FavCloseBtn = Instance.new("TextButton")
-            FavCloseBtn.Text = "X"
-            FavCloseBtn.Font = Enum.Font.GothamBold
-            FavCloseBtn.TextSize = 12
-            FavCloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
-            FavCloseBtn.BackgroundColor3 = Color3.fromRGB(55, 25, 30)
-            FavCloseBtn.Size = UDim2.new(0, 22, 0, 22)
-            FavCloseBtn.Position = UDim2.new(1, -28, 0.5, -11)
-            FavCloseBtn.ZIndex = 888883
-            FavCloseBtn.Parent = FavHeader
-            local FCC = Instance.new("UICorner"); FCC.CornerRadius = UDim.new(0, 6); FCC.Parent = FavCloseBtn
-            FavCloseBtn.MouseButton1Click:Connect(function() FavHUDFrame.Visible = false end)
-
-            -- Container de Rolagem dos Elementos Favoritados
-            local FavContent = Instance.new("ScrollingFrame")
-            FavContent.Size = UDim2.new(1, -16, 1, -48)
-            FavContent.Position = UDim2.new(0, 8, 0, 40)
-            FavContent.BackgroundTransparency = 1
-            FavContent.BorderSizePixel = 0
-            FavContent.ScrollBarThickness = 2
-            FavContent.ScrollBarImageColor3 = Themes.Accent
-            FavContent.ZIndex = 888881
-            FavContent.Parent = FavHUDFrame
-
-            local FavLayout = Instance.new("UIListLayout"); FavLayout.Padding = UDim.new(0, 6); FavLayout.SortOrder = Enum.SortOrder.LayoutOrder; FavLayout.Parent = FavContent
-            local FavPad = Instance.new("UIPadding"); FavPad.PaddingTop = UDim.new(0, 4); FavPad.PaddingBottom = UDim.new(0, 8); FavPad.PaddingLeft = UDim.new(0, 4); FavPad.PaddingRight = UDim.new(0, 8); FavPad.Parent = FavContent
-
-            FavLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                FavContent.CanvasSize = UDim2.new(0, 0, 0, FavLayout.AbsoluteContentSize.Y + 12)
-            end)
-
-            -- 2 Rabiscos // no canto inferior direito para redimensionar
-            local ResizeGrip = Instance.new("TextButton")
-            ResizeGrip.Text = "//"
-            ResizeGrip.Font = Enum.Font.GothamBold
-            ResizeGrip.TextSize = 12
-            ResizeGrip.TextColor3 = Themes.Accent
-            ResizeGrip.Size = UDim2.new(0, 20, 0, 20)
-            ResizeGrip.Position = UDim2.new(1, -20, 1, -20)
-            ResizeGrip.BackgroundTransparency = 1
-            ResizeGrip.ZIndex = 888885
-            ResizeGrip.Parent = FavHUDFrame
-
-            -- Lógica de Redimensionamento ao arrastar os 2 rabiscos (ResizeGrip)
-            local isResizing = false
-            local startMousePos, startSize
-
-            ResizeGrip.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    isResizing = true
-                    startMousePos = UserInputService:GetMouseLocation()
-                    startSize = FavHUDFrame.AbsoluteSize
-                end
-            end)
-
-            UserInputService.InputChanged:Connect(function(input)
-                if isResizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                    local currentMouse = UserInputService:GetMouseLocation()
-                    local deltaX = currentMouse.X - startMousePos.X
-                    local deltaY = currentMouse.Y - startMousePos.Y
-
-                    local newW = math.max(220, startSize.X + deltaX)
-                    local newH = math.max(140, startSize.Y + deltaY)
-
-                    FavHUDFrame.Size = UDim2.new(0, newW, 0, newH)
-                end
-            end)
-
-            UserInputService.InputEnded:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    isResizing = false
-                end
-            end)
-
-            -- Função para atualizar a lista do HUD Mods Rápidos (Favoritos)
-            local function RefreshFavHUD()
-                for _, c in pairs(FavContent:GetChildren()) do
-                    if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
-                end
-
-                local count = 0
-                for modName, isFav in pairs(getgenv().FavoritedMods or {}) do
-                    if isFav then
-                        count = count + 1
-                        local ItemFrame = Instance.new("Frame")
-                        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
-                        ItemFrame.BackgroundColor3 = Themes.Element
-                        ItemFrame.ZIndex = 888882
-                        ItemFrame.Parent = FavContent
-                        local IFC = Instance.new("UICorner"); IFC.CornerRadius = UDim.new(0, 6); IFC.Parent = ItemFrame
-
-                        local ItemLab = Instance.new("TextLabel")
-                        ItemLab.Text = "★ " .. modName
-                        ItemLab.Size = UDim2.new(1, -40, 1, 0)
-                        ItemLab.Position = UDim2.new(0, 10, 0, 0)
-                        ItemLab.BackgroundTransparency = 1
-                        ItemLab.Font = Enum.Font.GothamMedium
-                        ItemLab.TextColor3 = Themes.Text
-                        ItemLab.TextSize = 12
-                        ItemLab.TextXAlignment = Enum.TextXAlignment.Left
-                        ItemLab.ZIndex = 888883
-                        ItemLab.Parent = ItemFrame
-
-                        local DelFav = Instance.new("TextButton")
-                        DelFav.Text = "x"
-                        DelFav.Size = UDim2.new(0, 24, 0, 24)
-                        DelFav.Position = UDim2.new(1, -30, 0.5, -12)
-                        DelFav.BackgroundTransparency = 1
-                        DelFav.TextColor3 = Color3.fromRGB(220, 80, 80)
-                        DelFav.Font = Enum.Font.GothamBold
-                        DelFav.TextSize = 14
-                        DelFav.ZIndex = 888883
-                        DelFav.Parent = ItemFrame
-
-                        DelFav.MouseButton1Click:Connect(function()
-                            getgenv().FavoritedMods[modName] = false
-                            SaveFavoritesToFile()
-                            RefreshFavHUD()
-                        end)
-                    end
-                end
-
-                if count == 0 then
-                    local EmptyLab = Instance.new("TextLabel")
-                    EmptyLab.Text = "Nenhum mod favoritado ainda!\n(Clique com o Botão Direito em qualquer mod para favoritar)"
-                    EmptyLab.Size = UDim2.new(1, 0, 0, 80)
-                    EmptyLab.BackgroundTransparency = 1
-                    EmptyLab.Font = Enum.Font.Gotham
-                    EmptyLab.TextColor3 = Themes.TextDim
-                    EmptyLab.TextSize = 12
-                    EmptyLab.TextWrapped = true
-                    EmptyLab.ZIndex = 888882
-                    EmptyLab.Parent = FavContent
-                end
-            end
-
-            function Win:ToggleFavHUD()
-                FavHUDFrame.Visible = not FavHUDFrame.Visible
-                if FavHUDFrame.Visible then
-                    RefreshFavHUD()
-                end
-            end
-
-            -- Menu de Contexto de Botão Direito (Favoritar)
-            local ContextMenuFrame = Instance.new("Frame")
-            ContextMenuFrame.Name = "DreeZyContextMenu"
-            ContextMenuFrame.Size = UDim2.new(0, 160, 0, 42)
-            ContextMenuFrame.BackgroundColor3 = Color3.fromRGB(26, 24, 34)
-            ContextMenuFrame.BorderSizePixel = 0
-            ContextMenuFrame.ZIndex = 999990
-            ContextMenuFrame.Visible = false
-            ContextMenuFrame.Parent = ScreenGui
-
-            local ContextCorner = Instance.new("UICorner"); ContextCorner.CornerRadius = UDim.new(0, 8); ContextCorner.Parent = ContextMenuFrame
-            local ContextStroke = Instance.new("UIStroke"); ContextStroke.Color = Themes.Accent; ContextStroke.Thickness = 1; ContextStroke.Transparency = 0.4; ContextStroke.Parent = ContextMenuFrame
-
-            local ContextLab = Instance.new("TextLabel")
-            ContextLab.Text = "Favoritar"
-            ContextLab.Size = UDim2.new(0, 95, 1, 0)
-            ContextLab.Position = UDim2.new(0, 12, 0, 0)
-            ContextLab.BackgroundTransparency = 1
-            ContextLab.Font = Enum.Font.GothamBold
-            ContextLab.TextColor3 = Themes.Text
-            ContextLab.TextSize = 13
-            ContextLab.TextXAlignment = Enum.TextXAlignment.Left
-            ContextLab.ZIndex = 999991
-            ContextLab.Parent = ContextMenuFrame
-
-            local StarBtn = Instance.new("TextButton")
-            StarBtn.Size = UDim2.new(0, 26, 0, 26)
-            StarBtn.Position = UDim2.new(1, -34, 0.5, -13)
-            StarBtn.BackgroundTransparency = 1
-            StarBtn.Text = "★"
-            StarBtn.Font = Enum.Font.GothamBold
-            StarBtn.TextSize = 18
-            StarBtn.TextColor3 = Color3.fromRGB(140, 140, 150) -- Estrelinha cinza por padrão!
-            StarBtn.ZIndex = 999991
-            StarBtn.Parent = ContextMenuFrame
-
-            local currentSocketModName = nil
-            local isHoveringMenu = false
-
-            ContextMenuFrame.MouseEnter:Connect(function()
-                isHoveringMenu = true
-            end)
-
-            ContextMenuFrame.MouseLeave:Connect(function()
-                isHoveringMenu = false
-            end)
-
-            StarBtn.MouseButton1Click:Connect(function()
-                if currentSocketModName then
-                    local isFav = not (getgenv().FavoritedMods[currentSocketModName] or false)
-                    getgenv().FavoritedMods[currentSocketModName] = isFav
-                    
-                    StarBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(140, 140, 150) -- Amarelinha quando favoritado!
-                    SaveFavoritesToFile()
-                    if FavHUDFrame.Visible then RefreshFavHUD() end
-
-                    game:GetService("StarterGui"):SetCore("SendNotification", {
-                        Title = "DreeZy HUB",
-                        Text = isFav and ("★ " .. currentSocketModName .. " favoritado!") or ("☆ " .. currentSocketModName .. " removido dos favoritos!"),
-                        Duration = 2
-                    })
-                end
-            end)
-
-            -- Fechar o menu de contexto APENAS se o usuário clicar FORA da aba (seja dentro do HUB ou na tela do jogo)
-            UserInputService.InputBegan:Connect(function(input, gpe)
-                if ContextMenuFrame.Visible then
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.Touch then
-                        if not isHoveringMenu then
-                            ContextMenuFrame.Visible = false
-                        end
-                    end
-                end
-            end)
-
-            local function AttachSocketInteractions(EFrame, modName)
-                local SocketTrigger = Instance.new("TextButton")
-                SocketTrigger.Size = UDim2.new(1, 0, 1, 0)
-                SocketTrigger.BackgroundTransparency = 1
-                SocketTrigger.Text = ""
-                SocketTrigger.ZIndex = 81
-                SocketTrigger.Parent = EFrame
-
-                SocketTrigger.MouseEnter:Connect(function()
-                    pcall(function()
-                        game:GetService("Players").LocalPlayer:GetMouse().Icon = "rbxasset://textures/Cursors/KeyboardMouse/ArrowFarCursor.png"
-                    end)
-                end)
-
-                SocketTrigger.MouseLeave:Connect(function()
-                    pcall(function()
-                        game:GetService("Players").LocalPlayer:GetMouse().Icon = ""
-                    end)
-                end)
-
-                SocketTrigger.MouseButton2Click:Connect(function()
-                    currentSocketModName = modName or "Mod"
-                    local isFav = getgenv().FavoritedMods[currentSocketModName] or false
-                    StarBtn.TextColor3 = isFav and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(140, 140, 150)
-
-                    local mousePos = UserInputService:GetMouseLocation()
-                    ContextMenuFrame.Position = UDim2.new(0, mousePos.X + 5, 0, mousePos.Y - 20)
-                    ContextMenuFrame.Visible = true
-                end)
-            end
 
             -- Helper for Element Backgrounds
             local function CreateElementFrame(modName)
