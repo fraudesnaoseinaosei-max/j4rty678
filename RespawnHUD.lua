@@ -2751,6 +2751,8 @@ function VoidLib:CreateWindow()
         end
     end)
 
+    getgenv().RegisteredSockets = getgenv().RegisteredSockets or {}
+
     -- Função para atualizar a lista do HUD Mods Rápidos (Favoritos)
     local function RefreshFavHUD()
         for _, c in pairs(FavContent:GetChildren()) do
@@ -2761,41 +2763,120 @@ function VoidLib:CreateWindow()
         for modName, isFav in pairs(getgenv().FavoritedMods or {}) do
             if isFav then
                 count = count + 1
+                local desc = getgenv().RegisteredSockets[modName]
+
                 local ItemFrame = Instance.new("Frame")
                 ItemFrame.Size = UDim2.new(1, 0, 0, 36)
                 ItemFrame.BackgroundColor3 = Themes.Element
+                ItemFrame.ClipsDescendants = true
                 ItemFrame.ZIndex = 888882
                 ItemFrame.Parent = FavContent
                 local IFC = Instance.new("UICorner"); IFC.CornerRadius = UDim.new(0, 6); IFC.Parent = ItemFrame
 
-                local ItemLab = Instance.new("TextLabel")
-                ItemLab.Text = "★ " .. modName
-                ItemLab.Size = UDim2.new(1, -40, 1, 0)
-                ItemLab.Position = UDim2.new(0, 10, 0, 0)
-                ItemLab.BackgroundTransparency = 1
-                ItemLab.Font = Enum.Font.GothamMedium
-                ItemLab.TextColor3 = Themes.Text
-                ItemLab.TextSize = 12
-                ItemLab.TextXAlignment = Enum.TextXAlignment.Left
-                ItemLab.ZIndex = 888883
-                ItemLab.Parent = ItemFrame
+                if desc and desc.type == "Toggle" then
+                    local hasExtra = desc.extraBtnText and type(desc.extraBtnCallback) == "function"
+                    local hasExtra2 = desc.extraBtn2Text and type(desc.extraBtn2Callback) == "function"
 
-                local DelFav = Instance.new("TextButton")
-                DelFav.Text = "x"
-                DelFav.Size = UDim2.new(0, 24, 0, 24)
-                DelFav.Position = UDim2.new(1, -30, 0.5, -12)
-                DelFav.BackgroundTransparency = 1
-                DelFav.TextColor3 = Color3.fromRGB(220, 80, 80)
-                DelFav.Font = Enum.Font.GothamBold
-                DelFav.TextSize = 14
-                DelFav.ZIndex = 888883
-                DelFav.Parent = ItemFrame
+                    local rightWidth = 46
+                    if hasExtra then rightWidth = rightWidth + 66 end
+                    if hasExtra2 then rightWidth = rightWidth + 76 end
 
-                DelFav.MouseButton1Click:Connect(function()
-                    getgenv().FavoritedMods[modName] = false
-                    SaveFavoritesToFile()
-                    RefreshFavHUD()
-                end)
+                    local ItemLab = Instance.new("TextLabel")
+                    ItemLab.Text = modName
+                    ItemLab.Size = UDim2.new(1, -(rightWidth + 10), 1, 0)
+                    ItemLab.Position = UDim2.new(0, 10, 0, 0)
+                    ItemLab.BackgroundTransparency = 1
+                    ItemLab.Font = Enum.Font.GothamMedium
+                    ItemLab.TextColor3 = Themes.Text
+                    ItemLab.TextSize = 12
+                    ItemLab.TextXAlignment = Enum.TextXAlignment.Left
+                    ItemLab.TextTruncate = Enum.TextTruncate.AtEnd
+                    ItemLab.ZIndex = 888883
+                    ItemLab.Parent = ItemFrame
+
+                    local currOffset = 44
+
+                    -- Toggle Switch Principal
+                    local TBtn = Instance.new("TextButton")
+                    TBtn.Size = UDim2.new(0, 36, 0, 18)
+                    TBtn.Position = UDim2.new(1, -currOffset, 0.5, -9)
+                    local isCurrentlyOn = desc.get()
+                    TBtn.BackgroundColor3 = isCurrentlyOn and Themes.Accent or Color3.fromRGB(60,60,65)
+                    TBtn.Text = ""
+                    TBtn.ZIndex = 888884
+                    TBtn.Parent = ItemFrame
+                    local TBC = Instance.new("UICorner"); TBC.CornerRadius = UDim.new(1, 0); TBC.Parent = TBtn
+
+                    local circle = Instance.new("Frame")
+                    circle.Size = UDim2.new(0, 14, 0, 14)
+                    circle.Position = isCurrentlyOn and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+                    circle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+                    circle.ZIndex = 888885
+                    circle.Parent = TBtn
+                    local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(1, 0); CC.Parent = circle
+
+                    TBtn.MouseButton1Click:Connect(function()
+                        local newState = not desc.get()
+                        desc.set(newState)
+                        TweenService:Create(circle, TweenInfo.new(0.2), {Position = newState and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)}):Play()
+                        TweenService:Create(TBtn, TweenInfo.new(0.2), {BackgroundColor3 = newState and Themes.Accent or Color3.fromRGB(60,60,65)}):Play()
+                    end)
+
+                    currOffset = currOffset + 10
+
+                    if hasExtra then
+                        currOffset = currOffset + 60
+                        local ExtraBtn = Instance.new("TextButton")
+                        ExtraBtn.Size = UDim2.new(0, 56, 0, 20)
+                        ExtraBtn.Position = UDim2.new(1, -currOffset, 0.5, -10)
+                        ExtraBtn.BackgroundColor3 = Themes.Accent
+                        ExtraBtn.Text = desc.extraBtnText
+                        ExtraBtn.Font = Enum.Font.GothamBold
+                        ExtraBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                        ExtraBtn.TextSize = 10
+                        ExtraBtn.ZIndex = 888884
+                        ExtraBtn.Parent = ItemFrame
+                        local EBC = Instance.new("UICorner"); EBC.CornerRadius = UDim.new(0, 5); EBC.Parent = ExtraBtn
+
+                        ExtraBtn.MouseButton1Click:Connect(function()
+                            pcall(desc.extraBtnCallback)
+                        end)
+                        currOffset = currOffset + 6
+                    end
+
+                    if hasExtra2 then
+                        currOffset = currOffset + 70
+                        local ExtraBtn2 = Instance.new("TextButton")
+                        ExtraBtn2.Size = UDim2.new(0, 66, 0, 20)
+                        ExtraBtn2.Position = UDim2.new(1, -currOffset, 0.5, -10)
+                        ExtraBtn2.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+                        ExtraBtn2.Text = desc.extraBtn2Text
+                        ExtraBtn2.Font = Enum.Font.GothamBold
+                        ExtraBtn2.TextColor3 = Themes.Accent
+                        ExtraBtn2.TextSize = 10
+                        ExtraBtn2.ZIndex = 888884
+                        ExtraBtn2.Parent = ItemFrame
+                        local EBC2 = Instance.new("UICorner"); EBC2.CornerRadius = UDim.new(0, 5); EBC2.Parent = ExtraBtn2
+                        local EBS2 = Instance.new("UIStroke"); EBS2.Color = Themes.Accent; EBS2.Thickness = 1; EBS2.Transparency = 0.6; EBS2.Parent = ExtraBtn2
+
+                        ExtraBtn2.MouseButton1Click:Connect(function()
+                            pcall(desc.extraBtn2Callback, ExtraBtn2)
+                        end)
+                    end
+                else
+                    -- Fallback genérico para soquetes simples
+                    local ItemLab = Instance.new("TextLabel")
+                    ItemLab.Text = modName
+                    ItemLab.Size = UDim2.new(1, -20, 1, 0)
+                    ItemLab.Position = UDim2.new(0, 10, 0, 0)
+                    ItemLab.BackgroundTransparency = 1
+                    ItemLab.Font = Enum.Font.GothamMedium
+                    ItemLab.TextColor3 = Themes.Text
+                    ItemLab.TextSize = 12
+                    ItemLab.TextXAlignment = Enum.TextXAlignment.Left
+                    ItemLab.ZIndex = 888883
+                    ItemLab.Parent = ItemFrame
+                end
             end
         end
 
@@ -3938,6 +4019,19 @@ function VoidLib:CreateWindow()
                 TBtn.MouseButton1Click:Connect(function()
                     ToggleObj.Set(not enabled)
                 end)
+
+                getgenv().RegisteredSockets = getgenv().RegisteredSockets or {}
+                getgenv().RegisteredSockets[text] = {
+                    type = "Toggle",
+                    text = text,
+                    get = function() return ToggleObj.Get() end,
+                    set = function(v) ToggleObj.Set(v) end,
+                    extraBtnText = extraBtnText,
+                    extraBtnCallback = extraBtnCallback,
+                    extraBtn2Text = extraBtn2Text,
+                    extraBtn2Callback = extraBtn2Callback
+                }
+
                 return ToggleObj
             end
 
@@ -4034,6 +4128,15 @@ function VoidLib:CreateWindow()
                 TBtn.MouseButton1Click:Connect(function()
                     ToggleObj.Set(not enabled)
                 end)
+
+                getgenv().RegisteredSockets = getgenv().RegisteredSockets or {}
+                getgenv().RegisteredSockets[text] = {
+                    type = "Toggle",
+                    text = text,
+                    get = function() return ToggleObj.Get() end,
+                    set = function(v) ToggleObj.Set(v) end
+                }
+
                 return ToggleObj
             end
             
