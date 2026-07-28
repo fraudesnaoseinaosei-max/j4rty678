@@ -5563,6 +5563,27 @@ do
         end
     end, false)
 
+    local ServerGroup = Settings:Group("Servidores")
+    ServerGroup:ActionButton("Reload no Server", "Reload", function()
+        local TeleportService = game:GetService("TeleportService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
+
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "DreeZy HUB",
+            Text = "Reconectando ao mesmo servidor...",
+            Duration = 3
+        })
+
+        pcall(function()
+            if #Players:GetPlayers() <= 1 then
+                TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            else
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+            end
+        end)
+    end, false)
+
     local ManagerGroup = Settings:Group("Gerenciamento")
 
     local function Notify(msg)
