@@ -4025,6 +4025,7 @@ function VoidLib:CreateWindow()
                     ExtraBtn.Font = Enum.Font.GothamBold
                     ExtraBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
                     ExtraBtn.TextSize = 11
+                    ExtraBtn.ZIndex = 86
                     ExtraBtn.Parent = TFrame
                     local EBC = Instance.new("UICorner"); EBC.CornerRadius = UDim.new(0, 6); EBC.Parent = ExtraBtn
                     local EBS = Instance.new("UIStroke"); EBS.Color = Color3.fromRGB(255, 255, 255); EBS.Thickness = 1; EBS.Transparency = 0.8; EBS.Parent = ExtraBtn
@@ -4044,6 +4045,7 @@ function VoidLib:CreateWindow()
                     ExtraBtn2.Font = Enum.Font.GothamBold
                     ExtraBtn2.TextColor3 = Themes.Accent
                     ExtraBtn2.TextSize = 11
+                    ExtraBtn2.ZIndex = 86
                     ExtraBtn2.Parent = TFrame
                     local EBC2 = Instance.new("UICorner"); EBC2.CornerRadius = UDim.new(0, 6); EBC2.Parent = ExtraBtn2
                     local EBS2 = Instance.new("UIStroke"); EBS2.Color = Themes.Accent; EBS2.Thickness = 1; EBS2.Transparency = 0.6; EBS2.Parent = ExtraBtn2
@@ -4061,6 +4063,7 @@ function VoidLib:CreateWindow()
                 TBtn.Position = UDim2.new(1, -50, 0.5, -10)
                 TBtn.BackgroundColor3 = default and Themes.Accent or Color3.fromRGB(60,60,65)
                 TBtn.Text = ""
+                TBtn.ZIndex = 86
                 TBtn.Parent = TFrame
                 local TBC = Instance.new("UICorner"); TBC.CornerRadius = UDim.new(1, 0); TBC.Parent = TBtn
                 
@@ -4068,6 +4071,7 @@ function VoidLib:CreateWindow()
                 circle.Size = UDim2.new(0, 16, 0, 16)
                 circle.Position = default and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
                 circle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+                circle.ZIndex = 87
                 circle.Parent = TBtn
                 local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(1, 0); CC.Parent = circle
 
@@ -4200,6 +4204,7 @@ function VoidLib:CreateWindow()
                 TBtn.Position = UDim2.new(1, -50, 0.5, -10)
                 TBtn.BackgroundColor3 = defaultState and Themes.Accent or Color3.fromRGB(60,60,65)
                 TBtn.Text = ""
+                TBtn.ZIndex = 86
                 TBtn.Parent = TFrame
                 local TBC = Instance.new("UICorner"); TBC.CornerRadius = UDim.new(1, 0); TBC.Parent = TBtn
                 
@@ -4207,6 +4212,7 @@ function VoidLib:CreateWindow()
                 circle.Size = UDim2.new(0, 16, 0, 16)
                 circle.Position = defaultState and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
                 circle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+                circle.ZIndex = 87
                 circle.Parent = TBtn
                 local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(1, 0); CC.Parent = circle
 
