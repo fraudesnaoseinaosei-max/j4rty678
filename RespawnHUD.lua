@@ -4134,7 +4134,7 @@ function VoidLib:CreateWindow()
                 ActionBtn.Font = Enum.Font.GothamBold
                 ActionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
                 ActionBtn.TextSize = 12
-                ActionBtn.ZIndex = 82
+                ActionBtn.ZIndex = 86
                 ActionBtn.Parent = AFrame
                 local ABC = Instance.new("UICorner"); ABC.CornerRadius = UDim.new(0, 6); ABC.Parent = ActionBtn
                 local ABS = Instance.new("UIStroke"); ABS.Color = Color3.fromRGB(255, 255, 255); ABS.Thickness = 1; ABS.Transparency = 0.8; ABS.Parent = ActionBtn
