@@ -5667,5 +5667,10 @@ do
     InfoGroup:Button("Criado por DreeZy", function() setclipboard("DreeZy") end)
 end -- End Settings Block
 
+-- Carregamento automático de configurações e favoritos salvos ao iniciar (Preserva entre contas)
+pcall(function()
+    ConfigManager:Load()
+end)
+
 Notify("DreeZy Voidware V2 Carregado!")
 Notify("Use [Right Shift] para abrir/fechar o Menu!")
