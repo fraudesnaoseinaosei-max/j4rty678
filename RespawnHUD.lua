@@ -4354,13 +4354,17 @@ function VoidLib:CreateWindow()
                 return BFrame
             end
 
-            function GroupObj:ActionButton(text, btnText, callback, canFavorite)
+            function GroupObj:ActionButton(text, btnText, callback, canFavorite, subConfigCallback)
                 local AFrame = (canFavorite == false) and CreateElementFrame(nil) or CreateElementFrame(text)
+                local hasSub = type(subConfigCallback) == "function"
                 
+                local rightOffset = 85
+                if hasSub then rightOffset = 110 end
+
                 local TLab = Instance.new("TextLabel")
                 TLab.Text = text
                 TLab.Position = UDim2.new(0, 10, 0, 0)
-                TLab.Size = UDim2.new(1, -95, 1, 0)
+                TLab.Size = UDim2.new(1, -(rightOffset + 10), 1, 0)
                 TLab.BackgroundTransparency = 1
                 TLab.Font = Enum.Font.GothamMedium
                 TLab.TextColor3 = Themes.Text
@@ -4370,7 +4374,7 @@ function VoidLib:CreateWindow()
                 
                 local ActionBtn = Instance.new("TextButton")
                 ActionBtn.Size = UDim2.new(0, 75, 0, 24)
-                ActionBtn.Position = UDim2.new(1, -85, 0.5, -12)
+                ActionBtn.Position = UDim2.new(1, -(hasSub and 110 or 85), 0.5, -12)
                 ActionBtn.BackgroundColor3 = Themes.Accent
                 ActionBtn.Text = btnText or "Abrir"
                 ActionBtn.Font = Enum.Font.GothamBold
@@ -4384,6 +4388,30 @@ function VoidLib:CreateWindow()
                 ActionBtn.MouseButton1Click:Connect(function()
                     pcall(callback)
                 end)
+
+                if hasSub then
+                    local GearBtn = Instance.new("ImageButton")
+                    GearBtn.Size = UDim2.new(0, 20, 0, 20)
+                    GearBtn.Position = UDim2.new(1, -30, 0.5, -10)
+                    GearBtn.BackgroundTransparency = 1
+                    GearBtn.ZIndex = 86
+                    GearBtn.Image = "rbxassetid://6031280882" -- Ícone de engrenagem
+                    GearBtn.ImageColor3 = Themes.Accent
+                    GearBtn.ImageTransparency = 0
+                    GearBtn.Parent = AFrame
+
+                    local subFrame, subGroupObj = CreateSubWindow("Configurações - " .. text)
+                    GearBtn.MouseButton1Click:Connect(function()
+                        subFrame.Visible = not subFrame.Visible
+                        if subFrame.Visible then
+                            subFrame.Size = UDim2.new(0, 360, 0, 0)
+                            subFrame.BackgroundTransparency = 1
+                            TweenService:Create(subFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 260), BackgroundTransparency = 0}):Play()
+                        end
+                    end)
+
+                    pcall(subConfigCallback, subGroupObj)
+                end
                 
                 return AFrame
             end
@@ -5563,26 +5591,29 @@ do
         end
     end, false)
 
+    local autoReexecuteReload = false
+
     local ServerGroup = Settings:Group("Servidores")
     ServerGroup:ActionButton("Reload no Server", "Reload", function()
         local TeleportService = game:GetService("TeleportService")
         local Players = game:GetService("Players")
         local LocalPlayer = Players.LocalPlayer
 
-        -- Suporte universal a Auto-Executar ao Teleportar (queue_on_teleport)
-        local queueTeleport = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport or (fluxus and fluxus.queue_on_teleport)
-        if queueTeleport then
-            pcall(function()
-                queueTeleport([[
-                    repeat task.wait() until game:IsLoaded()
-                    loadstring(game:HttpGet("https://raw.githubusercontent.com/fraudesnaoseinaosei-max/j4rty678/main/RespawnHUD.lua?v=" .. tick()))()
-                ]])
-            end)
+        if autoReexecuteReload then
+            local queueTeleport = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport or (fluxus and fluxus.queue_on_teleport)
+            if queueTeleport then
+                pcall(function()
+                    queueTeleport([[
+                        repeat task.wait() until game:IsLoaded()
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/fraudesnaoseinaosei-max/j4rty678/main/RespawnHUD.lua?v=" .. tick()))()
+                    ]])
+                end)
+            end
         end
 
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "DreeZy HUB",
-            Text = "Reconectando e reexecutando o script...",
+            Text = autoReexecuteReload and "Reconectando e reexecutando o script..." or "Reconectando ao mesmo servidor...",
             Duration = 3
         })
 
@@ -5593,7 +5624,12 @@ do
                 TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
             end
         end)
-    end, false)
+    end, false, function(sub)
+        local autoToggle = sub:Toggle("Auto-Executar Script ao Reconectar", false, function(v)
+            autoReexecuteReload = v
+        end)
+        ConfigManager:Register("autoReexecuteReload", autoToggle)
+    end)
 
     local ManagerGroup = Settings:Group("Gerenciamento")
 
