@@ -5569,9 +5569,20 @@ do
         local Players = game:GetService("Players")
         local LocalPlayer = Players.LocalPlayer
 
+        -- Suporte universal a Auto-Executar ao Teleportar (queue_on_teleport)
+        local queueTeleport = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport or (fluxus and fluxus.queue_on_teleport)
+        if queueTeleport then
+            pcall(function()
+                queueTeleport([[
+                    repeat task.wait() until game:IsLoaded()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/fraudesnaoseinaosei-max/j4rty678/main/RespawnHUD.lua?v=" .. tick()))()
+                ]])
+            end)
+        end
+
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "DreeZy HUB",
-            Text = "Reconectando ao mesmo servidor...",
+            Text = "Reconectando e reexecutando o script...",
             Duration = 3
         })
 
