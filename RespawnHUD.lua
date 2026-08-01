@@ -634,7 +634,6 @@ local HitboxExpand = (function()
     local PartMappings = {
         ["Cabeça"] = {"Head"},
         ["Tronco"] = {"Torso", "UpperTorso", "LowerTorso"},
-        ["HumanoidRootPart"] = {"HumanoidRootPart"},
         ["Braço Esquerdo"] = {"Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand"},
         ["Braço Direito"] = {"Right Arm", "RightUpperArm", "RightLowerArm", "RightHand"},
         ["Perna Esquerda"] = {"Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot"},
@@ -683,10 +682,10 @@ local HitboxExpand = (function()
                 if v ~= player and v.Character then
                     pcall(function()
                         local char = v.Character
-                        -- Se nenhuma parte específica for escolhida na lista, expande por padrão o HumanoidRootPart
+                        -- Se nenhuma parte específica for escolhida na lista, expande por padrão a Cabeça
                         local activeMappings = selectedParts
                         if next(activeMappings) == nil then
-                            activeMappings = { ["HumanoidRootPart"] = true }
+                            activeMappings = { ["Cabeça"] = true }
                         end
 
                         for friendlyName, _ in pairs(activeMappings) do
@@ -717,6 +716,104 @@ local HitboxExpand = (function()
         end
     end)
     return HitboxExpand
+end)()
+
+-- [3.5] AUTO SHOT CORE (TRIGGERBOT & AUTO-CLICKER)
+local AutoShotCore = (function()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+    local VirtualInputManager = pcall(function() return game:GetService("VirtualInputManager") end) and game:GetService("VirtualInputManager") or nil
+
+    local AutoShot = {}
+    local player = Players.LocalPlayer
+    local mouse = player:GetMouse()
+
+    local isEnabled = false
+    local ignoredPlayers = {}
+    local ignoredTeams = {}
+
+    local isShooting = false
+    local lastClickTime = 0
+    local clickInterval = 0.05 -- Spamar cliques rápidos (20 Clicks por segundo)
+
+    local function ClickMouse()
+        -- Tenta utilizar o VirtualInputManager (Executores de alto nível) ou mouse1click/mouse1press nativo
+        if VirtualInputManager then
+            local mousePos = UserInputService:GetMouseLocation()
+            VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, true, game, 0)
+            task.wait(0.01)
+            VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, false, game, 0)
+        elseif mouse1click then
+            mouse1click()
+        elseif mouse1press and mouse1release then
+            mouse1press()
+            task.wait(0.01)
+            mouse1release()
+        end
+    end
+
+    local function IsPlayerTarget(targetPart)
+        if not targetPart or not targetPart.Parent then return nil end
+        local char = targetPart.Parent
+        -- Se for parte interna ou acessório, subir para encontrar o Model Character
+        if not char:FindFirstChildOfClass("Humanoid") and char.Parent and char.Parent:FindFirstChildOfClass("Humanoid") then
+            char = char.Parent
+        end
+
+        local targetPlayer = Players:GetPlayerFromCharacter(char)
+        if not targetPlayer or targetPlayer == player then return nil end
+
+        -- Verificar se o jogador está vivo
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then return nil end
+
+        -- Verificar filtro de Time (Team Check)
+        if player.Team and targetPlayer.Team and player.Team == targetPlayer.Team then
+            return nil
+        end
+        if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then
+            return nil
+        end
+
+        -- Verificar filtro de Exceção de Jogadores
+        if ignoredPlayers[targetPlayer.Name] or ignoredPlayers[targetPlayer.DisplayName] then
+            return nil
+        end
+
+        return targetPlayer
+    end
+
+    RunService.RenderStepped:Connect(function()
+        if not isEnabled then return end
+
+        local targetPart = mouse.Target
+        local validTarget = IsPlayerTarget(targetPart)
+
+        if validTarget then
+            local now = os.clock()
+            if now - lastClickTime >= clickInterval then
+                lastClickTime = now
+                task.spawn(ClickMouse)
+            end
+        end
+    end)
+
+    function AutoShot:SetEnabled(enabled)
+        isEnabled = enabled
+        if getgenv then getgenv().AutoShotEnabled = enabled end
+    end
+
+    function AutoShot:IsEnabled()
+        return isEnabled
+    end
+
+    function AutoShot:IgnorePlayer(name) ignoredPlayers[name] = true end
+    function AutoShot:UnignorePlayer(name) ignoredPlayers[name] = nil end
+    function AutoShot:IgnoreTeam(name) ignoredTeams[name] = true end
+    function AutoShot:UnignoreTeam(name) ignoredTeams[name] = nil end
+
+    return AutoShot
 end)()
 
 -- [4] ESP CORE
@@ -5053,7 +5150,6 @@ do
 
     local function GetBodyPartsList()
         return {
-            "HumanoidRootPart",
             "Cabeça",
             "Tronco",
             "Braço Esquerdo",
@@ -5067,6 +5163,25 @@ do
         HitboxExpand:AddPart(partName)
     end, function(partName)
         HitboxExpand:RemovePart(partName)
+    end)
+
+    -- >>> CATEGORIA: AUTO SHOT
+    local AutoShotGroup = Combat:Group("AutoShot")
+    local autoShotToggle = AutoShotGroup:Toggle("Ativar AutoShot", AutoShotCore:IsEnabled(), function(v)
+        AutoShotCore:SetEnabled(v)
+    end)
+    ConfigManager:Register("autoShotEnabled", autoShotToggle)
+
+    AutoShotGroup:InteractiveList("Exceção Jogadores", GetExPlayersListMain, function(itemName)
+        AutoShotCore:IgnorePlayer(itemName)
+    end, function(itemName)
+        AutoShotCore:UnignorePlayer(itemName)
+    end)
+
+    AutoShotGroup:InteractiveList("Exceção Times", GetExTeamsListMain, function(itemName)
+        AutoShotCore:IgnoreTeam(itemName)
+    end, function(itemName)
+        AutoShotCore:UnignoreTeam(itemName)
     end)
 
 end -- End Combat Block
