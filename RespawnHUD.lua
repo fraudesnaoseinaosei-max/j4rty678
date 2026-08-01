@@ -3815,6 +3815,69 @@ function VoidLib:CreateWindow()
                     return SToggleSliderObj
                 end
 
+                function SubGroupObj:Input(stext, sdefaultVal, sminVal, smaxVal, scallback, sunitText)
+                    local SIFrame = CreateSubElementFrame()
+                    SIFrame.Size = UDim2.new(1, 0, 0, 36)
+
+                    local SILab = Instance.new("TextLabel")
+                    SILab.Text = stext
+                    SILab.Position = UDim2.new(0, 10, 0, 0)
+                    SILab.Size = UDim2.new(1, -110, 1, 0)
+                    SILab.BackgroundTransparency = 1
+                    SILab.Font = Enum.Font.GothamMedium
+                    SILab.TextColor3 = Themes.Text
+                    SILab.TextSize = 13
+                    SILab.TextXAlignment = Enum.TextXAlignment.Left
+                    SILab.ZIndex = 83
+                    SILab.Parent = SIFrame
+
+                    local STBox = Instance.new("TextBox")
+                    STBox.Size = UDim2.new(0, 90, 0, 24)
+                    STBox.Position = UDim2.new(1, -100, 0.5, -12)
+                    STBox.BackgroundColor3 = Color3.fromRGB(45, 45, 52)
+                    STBox.Text = tostring(sdefaultVal or 50) .. (sunitText and (" " .. sunitText) or "")
+                    STBox.Font = Enum.Font.GothamBold
+                    STBox.TextColor3 = Themes.Accent
+                    STBox.TextSize = 12
+                    STBox.ClearTextOnFocus = false
+                    STBox.ZIndex = 86
+                    STBox.Parent = SIFrame
+                    local STBC = Instance.new("UICorner"); STBC.CornerRadius = UDim.new(0, 6); STBC.Parent = STBox
+                    local STBS = Instance.new("UIStroke"); STBS.Color = Themes.Accent; STBS.Thickness = 1; STBS.Transparency = 0.5; STBS.Parent = STBox
+
+                    local scurrentValue = tonumber(sdefaultVal) or 50
+
+                    local function applyValue()
+                        local cleanStr = STBox.Text:gsub("[^%d%.]", "")
+                        local num = tonumber(cleanStr)
+                        if num then
+                            if sminVal then num = math.max(sminVal, num) end
+                            if smaxVal then num = math.min(smaxVal, num) end
+                            scurrentValue = num
+                        end
+                        STBox.Text = tostring(scurrentValue) .. (sunitText and (" " .. sunitText) or "")
+                        pcall(scallback, scurrentValue)
+                    end
+
+                    STBox.FocusLost:Connect(function(enterPressed)
+                        applyValue()
+                    end)
+
+                    local SInputObj = {
+                        Frame = SIFrame,
+                        Get = function() return scurrentValue end,
+                        Set = function(val)
+                            local num = tonumber(val) or scurrentValue
+                            if sminVal then num = math.max(sminVal, num) end
+                            if smaxVal then num = math.min(smaxVal, num) end
+                            scurrentValue = num
+                            STBox.Text = tostring(scurrentValue) .. (sunitText and (" " .. sunitText) or "")
+                            pcall(scallback, scurrentValue)
+                        end
+                    }
+                    return SInputObj
+                end
+
                 function SubGroupObj:Slider(stext, smin, smax, sdefault, scallback, sformatter)
                     local SSFrame = CreateSubElementFrame()
                     SSFrame.Size = UDim2.new(1, 0, 0, 50)
