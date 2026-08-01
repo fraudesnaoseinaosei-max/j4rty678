@@ -723,22 +723,41 @@ local AutoShotCore = (function()
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
+    local Workspace = game:GetService("Workspace")
     local VirtualInputManager = pcall(function() return game:GetService("VirtualInputManager") end) and game:GetService("VirtualInputManager") or nil
 
     local AutoShot = {}
     local player = Players.LocalPlayer
+    local camera = Workspace.CurrentCamera or Workspace:FindFirstChildOfClass("Camera")
     local mouse = player:GetMouse()
 
     local isEnabled = false
     local ignoredPlayers = {}
     local ignoredTeams = {}
 
-    local isShooting = false
+    local isHoldingMouse = false
     local lastClickTime = 0
-    local clickInterval = 0.05 -- Spamar cliques rápidos (20 Clicks por segundo)
+    local clickInterval = 0.05 -- 50ms por padrão (20 Clicks por segundo)
 
-    local function ClickMouse()
-        -- Tenta utilizar o VirtualInputManager (Executores de alto nível) ou mouse1click/mouse1press nativo
+    local function SendMousePress()
+        if VirtualInputManager then
+            local mousePos = UserInputService:GetMouseLocation()
+            VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, true, game, 0)
+        elseif mouse1press then
+            mouse1press()
+        end
+    end
+
+    local function SendMouseRelease()
+        if VirtualInputManager then
+            local mousePos = UserInputService:GetMouseLocation()
+            VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, false, game, 0)
+        elseif mouse1release then
+            mouse1release()
+        end
+    end
+
+    local function PerformSpamClick()
         if VirtualInputManager then
             local mousePos = UserInputService:GetMouseLocation()
             VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, true, game, 0)
@@ -753,12 +772,41 @@ local AutoShotCore = (function()
         end
     end
 
+    -- Checagem rigorosa de visibilidade por Raycast (Garante que o jogador não está atrás de paredes)
+    local function IsTargetVisible(targetPart, targetCharacter)
+        cam = Workspace.CurrentCamera or camera
+        if not cam or not targetPart or not targetCharacter then return false end
+
+        local origin = cam.CFrame.Position
+        local targetPos = targetPart.Position
+        local direction = targetPos - origin
+
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+        local ignoreList = {}
+        if player.Character then table.insert(ignoreList, player.Character) end
+        if cam then table.insert(ignoreList, cam) end
+
+        raycastParams.FilterDescendantsInstances = ignoreList
+        raycastParams.IgnoreWater = true
+
+        local result = Workspace:Raycast(origin, direction, raycastParams)
+        if result then
+            return result.Instance:IsDescendantOf(targetCharacter)
+        end
+        return false
+    end
+
     local function IsPlayerTarget(targetPart)
         if not targetPart or not targetPart.Parent then return nil end
         local char = targetPart.Parent
-        -- Se for parte interna ou acessório, subir para encontrar o Model Character
-        if not char:FindFirstChildOfClass("Humanoid") and char.Parent and char.Parent:FindFirstChildOfClass("Humanoid") then
-            char = char.Parent
+
+        -- Subir na hierarquia caso o cursor esteja em acessórios, ferramentas ou partes filhas
+        if not char:FindFirstChildOfClass("Humanoid") then
+            if char.Parent and char.Parent:FindFirstChildOfClass("Humanoid") then
+                char = char.Parent
+            end
         end
 
         local targetPlayer = Players:GetPlayerFromCharacter(char)
@@ -768,7 +816,12 @@ local AutoShotCore = (function()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then return nil end
 
-        -- Verificar filtro de Exceção de Times (apenas se estiver explicitamente na lista de Exceção Times)
+        -- Verificar filtro de Exceção de Jogadores (Nome exato ou DisplayName)
+        if ignoredPlayers[targetPlayer.Name] or ignoredPlayers[targetPlayer.DisplayName] then
+            return nil
+        end
+
+        -- Verificar filtro de Exceção de Times (Nome do time ou TeamColor)
         if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then
             return nil
         end
@@ -776,8 +829,8 @@ local AutoShotCore = (function()
             return nil
         end
 
-        -- Verificar filtro de Exceção de Jogadores
-        if ignoredPlayers[targetPlayer.Name] or ignoredPlayers[targetPlayer.DisplayName] then
+        -- Checar se o inimigo está realmente visível (não atrás de objetos/paredes)
+        if not IsTargetVisible(targetPart, char) then
             return nil
         end
 
@@ -785,22 +838,45 @@ local AutoShotCore = (function()
     end
 
     RunService.RenderStepped:Connect(function()
-        if not isEnabled then return end
+        if not isEnabled then
+            if isHoldingMouse then
+                isHoldingMouse = false
+                task.spawn(SendMouseRelease)
+            end
+            return
+        end
 
         local targetPart = mouse.Target
         local validTarget = IsPlayerTarget(targetPart)
 
         if validTarget then
+            -- Se acabou de mirar em um inimigo válido, pressiona e segura o botão do mouse!
+            if not isHoldingMouse then
+                isHoldingMouse = true
+                task.spawn(SendMousePress)
+            end
+
+            -- Ao mesmo tempo, spama cliques no intervalo em milissegundos configurado pelo usuário!
             local now = os.clock()
             if now - lastClickTime >= clickInterval then
                 lastClickTime = now
-                task.spawn(ClickMouse)
+                task.spawn(PerformSpamClick)
+            end
+        else
+            -- Se o cursor saiu do inimigo, solta o botão do mouse imediatamente
+            if isHoldingMouse then
+                isHoldingMouse = false
+                task.spawn(SendMouseRelease)
             end
         end
     end)
 
     function AutoShot:SetEnabled(enabled)
         isEnabled = enabled
+        if not enabled and isHoldingMouse then
+            isHoldingMouse = false
+            task.spawn(SendMouseRelease)
+        end
         if getgenv then getgenv().AutoShotEnabled = enabled end
     end
 
@@ -809,7 +885,8 @@ local AutoShotCore = (function()
     end
 
     function AutoShot:SetIntervalMS(ms)
-        clickInterval = math.max(0.001, ms / 1000)
+        local num = tonumber(ms) or 50
+        clickInterval = math.max(0.001, num / 1000) -- Mínimo seguro de 1ms
     end
 
     function AutoShot:GetIntervalMS()
@@ -4482,6 +4559,68 @@ function VoidLib:CreateWindow()
                 }
                 return SliderObj
             end
+
+            function GroupObj:Input(text, defaultVal, minVal, maxVal, callback, unitText)
+                local IFrame = CreateElementFrame(text)
+                IFrame.Size = UDim2.new(1, 0, 0, 36)
+
+                local ILab = Instance.new("TextLabel")
+                ILab.Text = text
+                ILab.Position = UDim2.new(0, 10, 0, 0)
+                ILab.Size = UDim2.new(1, -110, 1, 0)
+                ILab.BackgroundTransparency = 1
+                ILab.Font = Enum.Font.GothamMedium
+                ILab.TextColor3 = Themes.Text
+                ILab.TextSize = 13
+                ILab.TextXAlignment = Enum.TextXAlignment.Left
+                ILab.Parent = IFrame
+
+                local TBox = Instance.new("TextBox")
+                TBox.Size = UDim2.new(0, 90, 0, 24)
+                TBox.Position = UDim2.new(1, -100, 0.5, -12)
+                TBox.BackgroundColor3 = Color3.fromRGB(45, 45, 52)
+                TBox.Text = tostring(defaultVal or 50) .. (unitText and (" " .. unitText) or "")
+                TBox.Font = Enum.Font.GothamBold
+                TBox.TextColor3 = Themes.Accent
+                TBox.TextSize = 12
+                TBox.ClearTextOnFocus = false
+                TBox.ZIndex = 86
+                TBox.Parent = IFrame
+                local TBC = Instance.new("UICorner"); TBC.CornerRadius = UDim.new(0, 6); TBC.Parent = TBox
+                local TBS = Instance.new("UIStroke"); TBS.Color = Themes.Accent; TBS.Thickness = 1; TBS.Transparency = 0.5; TBS.Parent = TBox
+
+                local currentValue = tonumber(defaultVal) or 50
+
+                local function applyValue()
+                    local cleanStr = TBox.Text:gsub("[^%d%.]", "")
+                    local num = tonumber(cleanStr)
+                    if num then
+                        if minVal then num = math.max(minVal, num) end
+                        if maxVal then num = math.min(maxVal, num) end
+                        currentValue = num
+                    end
+                    TBox.Text = tostring(currentValue) .. (unitText and (" " .. unitText) or "")
+                    pcall(callback, currentValue)
+                end
+
+                TBox.FocusLost:Connect(function(enterPressed)
+                    applyValue()
+                end)
+
+                local InputObj = {
+                    Frame = IFrame,
+                    Get = function() return currentValue end,
+                    Set = function(val)
+                        local num = tonumber(val) or currentValue
+                        if minVal then num = math.max(minVal, num) end
+                        if maxVal then num = math.min(maxVal, num) end
+                        currentValue = num
+                        TBox.Text = tostring(currentValue) .. (unitText and (" " .. unitText) or "")
+                        pcall(callback, currentValue)
+                    end
+                }
+                return InputObj
+            end
             
             function GroupObj:Button(text, callback)
                 local BFrame = CreateElementFrame()
@@ -5178,12 +5317,10 @@ do
     local autoShotToggle = AutoShotGroup:Toggle("Ativar AutoShot", AutoShotCore:IsEnabled(), function(v)
         AutoShotCore:SetEnabled(v)
     end, function(sub)
-        local intervalSlider = sub:Slider("Intervalo de Clique (ms)", 10, 500, AutoShotCore:GetIntervalMS(), function(v)
+        local intervalInput = sub:Input("Intervalo de Clique", AutoShotCore:GetIntervalMS(), 1, 10000, function(v)
             AutoShotCore:SetIntervalMS(v)
-        end, function(v)
-            return tostring(v) .. " ms"
-        end)
-        ConfigManager:Register("autoShotInterval", intervalSlider)
+        end, "ms")
+        ConfigManager:Register("autoShotInterval", intervalInput)
     end)
     ConfigManager:Register("autoShotEnabled", autoShotToggle)
 
