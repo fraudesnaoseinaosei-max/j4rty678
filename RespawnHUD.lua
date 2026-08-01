@@ -768,8 +768,8 @@ local AutoShotCore = (function()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then return nil end
 
-        -- Verificar filtro de Time (Team Check)
-        if player.Team and targetPlayer.Team and player.Team == targetPlayer.Team then
+        -- Verificar filtro de Exceção de Times (apenas se estiver explicitamente na lista de Exceção Times)
+        if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then
             return nil
         end
         if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then
@@ -806,6 +806,14 @@ local AutoShotCore = (function()
 
     function AutoShot:IsEnabled()
         return isEnabled
+    end
+
+    function AutoShot:SetIntervalMS(ms)
+        clickInterval = math.max(0.001, ms / 1000)
+    end
+
+    function AutoShot:GetIntervalMS()
+        return math.floor(clickInterval * 1000 + 0.5)
     end
 
     function AutoShot:IgnorePlayer(name) ignoredPlayers[name] = true end
@@ -5169,6 +5177,13 @@ do
     local AutoShotGroup = Combat:Group("AutoShot")
     local autoShotToggle = AutoShotGroup:Toggle("Ativar AutoShot", AutoShotCore:IsEnabled(), function(v)
         AutoShotCore:SetEnabled(v)
+    end, function(sub)
+        local intervalSlider = sub:Slider("Intervalo de Clique (ms)", 10, 500, AutoShotCore:GetIntervalMS(), function(v)
+            AutoShotCore:SetIntervalMS(v)
+        end, function(v)
+            return tostring(v) .. " ms"
+        end)
+        ConfigManager:Register("autoShotInterval", intervalSlider)
     end)
     ConfigManager:Register("autoShotEnabled", autoShotToggle)
 
