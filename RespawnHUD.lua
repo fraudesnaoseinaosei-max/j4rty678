@@ -619,66 +619,104 @@ local KillAuraCore = (function()
     return KillAura
 end)()
 
--- [3] HEAD ESP
-local HeadESP = (function()
+-- [3] HITBOX EXPAND
+local HitboxExpand = (function()
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
-    local HeadESP = {}
+    local HitboxExpand = {}
     local player = Players.LocalPlayer
 
-    local Config = { HeadSize = 5, Disabled = true }
+    local Config = { Size = 10, Disabled = true }
+    local selectedParts = {} -- Ex: { ["Cabeça"] = true, ["HumanoidRootPart"] = true }
     local originalProperties = {}
 
-    function HeadESP:RestoreHeads()
-        for head, props in pairs(originalProperties) do
-            if head and head.Parent then
+    -- Mapeamento amigável de partes do corpo para os nomes padrão em R6 e R15
+    local PartMappings = {
+        ["Cabeça"] = {"Head"},
+        ["Tronco"] = {"Torso", "UpperTorso", "LowerTorso"},
+        ["HumanoidRootPart"] = {"HumanoidRootPart"},
+        ["Braço Esquerdo"] = {"Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand"},
+        ["Braço Direito"] = {"Right Arm", "RightUpperArm", "RightLowerArm", "RightHand"},
+        ["Perna Esquerda"] = {"Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot"},
+        ["Perna Direita"] = {"Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot"}
+    }
+
+    function HitboxExpand:RestoreParts()
+        for part, props in pairs(originalProperties) do
+            if part and part.Parent then
                 pcall(function()
-                    head.Size = props.Size
-                    head.Transparency = props.Transparency
-                    head.BrickColor = props.BrickColor
-                    head.Material = props.Material
-                    head.CanCollide = props.CanCollide
-                    head.Massless = props.Massless
+                    part.Size = props.Size
+                    part.Transparency = props.Transparency
+                    part.CanCollide = props.CanCollide
+                    part.Massless = props.Massless
                 end)
             end
         end
         originalProperties = {}
     end
 
-    function HeadESP:SetEnabled(enabled) 
+    function HitboxExpand:SetEnabled(enabled)
         Config.Disabled = not enabled
-        if not enabled then self:RestoreHeads() end
+        if not enabled then self:RestoreParts() end
     end
-    function HeadESP:IsEnabled() return not Config.Disabled end
-    function HeadESP:SetHeadSize(size) Config.HeadSize = size end
-    function HeadESP:GetHeadSize() return Config.HeadSize end
+    function HitboxExpand:IsEnabled() return not Config.Disabled end
+
+    function HitboxExpand:SetSize(size) Config.Size = size end
+    function HitboxExpand:GetSize() return Config.Size end
+
+    function HitboxExpand:AddPart(friendlyName)
+        selectedParts[friendlyName] = true
+    end
+
+    function HitboxExpand:RemovePart(friendlyName)
+        selectedParts[friendlyName] = nil
+        self:RestoreParts()
+    end
+
+    function HitboxExpand:GetSelectedParts()
+        return selectedParts
+    end
 
     RunService.RenderStepped:Connect(function()
         if not Config.Disabled then
-            for i, v in next, Players:GetPlayers() do
-                if v.Name ~= player.Name then
+            for _, v in pairs(Players:GetPlayers()) do
+                if v ~= player and v.Character then
                     pcall(function()
-                        if v.Character and v.Character:FindFirstChild("Head") then
-                            local head = v.Character.Head
-                            if not originalProperties[head] then
-                                originalProperties[head] = {
-                                    Size = head.Size; Transparency = head.Transparency; BrickColor = head.BrickColor;
-                                    Material = head.Material; CanCollide = head.CanCollide; Massless = head.Massless
-                                }
+                        local char = v.Character
+                        -- Se nenhuma parte específica for escolhida na lista, expande por padrão o HumanoidRootPart
+                        local activeMappings = selectedParts
+                        if next(activeMappings) == nil then
+                            activeMappings = { ["HumanoidRootPart"] = true }
+                        end
+
+                        for friendlyName, _ in pairs(activeMappings) do
+                            local realPartNames = PartMappings[friendlyName]
+                            if realPartNames then
+                                for _, partName in ipairs(realPartNames) do
+                                    local part = char:FindFirstChild(partName)
+                                    if part and part:IsA("BasePart") then
+                                        if not originalProperties[part] then
+                                            originalProperties[part] = {
+                                                Size = part.Size,
+                                                Transparency = part.Transparency,
+                                                CanCollide = part.CanCollide,
+                                                Massless = part.Massless
+                                            }
+                                        end
+                                        part.Size = Vector3.new(Config.Size, Config.Size, Config.Size)
+                                        part.Transparency = 0.7 -- Sutil e indetectável
+                                        part.CanCollide = false
+                                        part.Massless = true
+                                    end
+                                end
                             end
-                            head.Size = Vector3.new(Config.HeadSize, Config.HeadSize, Config.HeadSize)
-                            head.Transparency = 0.5
-                            head.BrickColor = BrickColor.new("Red")
-                            head.Material = Enum.Material.Neon
-                            head.CanCollide = false
-                            head.Massless = true
                         end
                     end)
                 end
             end
         end
     end)
-    return HeadESP
+    return HitboxExpand
 end)()
 
 -- [4] ESP CORE
@@ -5002,16 +5040,34 @@ do
         AimbotCore:UnignoreTeam(itemName)
     end)
 
-    local HeadGroup = Combat:Group("Cabeças (Headshot)")
-    local headToggle = HeadGroup:Toggle("Expandir Cabeças", HeadESP:IsEnabled(), function(v)
-        HeadESP:SetEnabled(v)
+    local HitboxGroup = Combat:Group("Hitbox")
+    local hitboxToggle = HitboxGroup:Toggle("Expandir Hitbox", HitboxExpand:IsEnabled(), function(v)
+        HitboxExpand:SetEnabled(v)
     end, function(sub)
-        local headSizeSlider = sub:Slider("Tamanho", 1, 20, HeadESP:GetHeadSize(), function(v)
-            HeadESP:SetHeadSize(v)
+        local hitboxSizeSlider = sub:Slider("Tamanho", 1, 30, HitboxExpand:GetSize(), function(v)
+            HitboxExpand:SetSize(v)
         end)
-        ConfigManager:Register("headSize", headSizeSlider)
+        ConfigManager:Register("hitboxSize", hitboxSizeSlider)
     end)
-    ConfigManager:Register("headEnabled", headToggle)
+    ConfigManager:Register("hitboxEnabled", hitboxToggle)
+
+    local function GetBodyPartsList()
+        return {
+            "HumanoidRootPart",
+            "Cabeça",
+            "Tronco",
+            "Braço Esquerdo",
+            "Braço Direito",
+            "Perna Esquerda",
+            "Perna Direita"
+        }
+    end
+
+    HitboxGroup:InteractiveList("Partes do Corpo", GetBodyPartsList, function(partName)
+        HitboxExpand:AddPart(partName)
+    end, function(partName)
+        HitboxExpand:RemovePart(partName)
+    end)
 
 end -- End Combat Block
 
