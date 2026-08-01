@@ -901,6 +901,101 @@ local AutoShotCore = (function()
     return AutoShot
 end)()
 
+-- [3.6] AUTO CLICKER CORE (AUTO-CLICKER LOCAL COM DUPLA CAMADA E TECLADO/MOUSE INTERATIVOS)
+local AutoClickerCore = (function()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+    local VirtualInputManager = pcall(function() return game:GetService("VirtualInputManager") end) and game:GetService("VirtualInputManager") or nil
+
+    local AutoClicker = {}
+    local player = Players.LocalPlayer
+
+    local mainEnabled = false    -- Camada 1: Interruptor principal do soquete
+    local keybindActive = false  -- Camada 2: Ativação por tecla/gatilho
+    local triggerKey = Enum.KeyCode.E
+
+    local clickTarget = "MouseButton1" -- "MouseButton1", "MouseButton2", "MouseButton3" ou "E", "Q", "Space", etc.
+    local clickInterval = 0.05 -- 50ms por padrão (20 clicks p/s)
+    local lastClickTime = 0
+
+    local function PerformClick()
+        local mousePos = UserInputService:GetMouseLocation()
+
+        if clickTarget == "MouseButton1" then
+            if VirtualInputManager then
+                VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, true, game, 0)
+                task.wait(0.01)
+                VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 0, false, game, 0)
+            elseif mouse1click then
+                mouse1click()
+            end
+        elseif clickTarget == "MouseButton2" then
+            if VirtualInputManager then
+                VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 1, true, game, 0)
+                task.wait(0.01)
+                VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 1, false, game, 0)
+            elseif mouse2click then
+                mouse2click()
+            end
+        elseif clickTarget == "MouseButton3" then
+            if VirtualInputManager then
+                VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 2, true, game, 0)
+                task.wait(0.01)
+                VirtualInputManager:SendMouseButtonEvent(mousePos.X, mousePos.Y, 2, false, game, 0)
+            end
+        else
+            -- Tecla do Teclado (ex: "E", "Q", "Space", "1", "2", etc.)
+            local keyEnum = Enum.KeyCode[clickTarget]
+            if keyEnum and VirtualInputManager then
+                VirtualInputManager:SendKeyEvent(true, keyEnum, false, game)
+                task.wait(0.01)
+                VirtualInputManager:SendKeyEvent(false, keyEnum, false, game)
+            end
+        end
+    end
+
+    -- Listener da Tecla de Ativação da Camada 2 (SÓ FUNCIONA SE A CAMADA 1 ESTIVER LIGADA!)
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        if not mainEnabled then return end -- SEM O INTERRUPTOR LIGADO, APERTAR A TECLA NÃO FAZ NADA!
+
+        if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == triggerKey then
+            keybindActive = not keybindActive
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if not mainEnabled or not keybindActive then return end
+
+        local now = os.clock()
+        if now - lastClickTime >= clickInterval then
+            lastClickTime = now
+            task.spawn(PerformClick)
+        end
+    end)
+
+    function AutoClicker:SetMainEnabled(v)
+        mainEnabled = v
+        if not v then keybindActive = false end
+    end
+    function AutoClicker:IsMainEnabled() return mainEnabled end
+
+    function AutoClicker:SetTriggerKey(key) triggerKey = key end
+    function AutoClicker:GetTriggerKey() return triggerKey end
+
+    function AutoClicker:SetClickTarget(target) clickTarget = target end
+    function AutoClicker:GetClickTarget() return clickTarget end
+
+    function AutoClicker:SetIntervalMS(ms)
+        local num = tonumber(ms) or 50
+        clickInterval = math.max(0.001, num / 1000)
+    end
+    function AutoClicker:GetIntervalMS() return math.floor(clickInterval * 1000 + 0.5) end
+
+    return AutoClicker
+end)()
+
 -- [4] ESP CORE
 local ESPCore = (function()
     if not Drawing then return {} end
@@ -3878,6 +3973,147 @@ function VoidLib:CreateWindow()
                     return SInputObj
                 end
 
+                function SubGroupObj:KeyboardMouseDisplay(initialTarget, onSelect)
+                    local DisplayFrame = CreateSubElementFrame()
+                    DisplayFrame.Size = UDim2.new(1, 0, 0, 240)
+                    DisplayFrame.ClipsDescendants = true
+                    DisplayFrame.ZIndex = 83
+
+                    local StatusLab = Instance.new("TextLabel")
+                    StatusLab.Text = "Alvo de Auto Click: " .. (initialTarget == "MouseButton1" and "[ Mouse Esq (M1) ]" or (initialTarget == "MouseButton2" and "[ Mouse Dir (M2) ]" or (initialTarget == "MouseButton3" and "[ Mouse Meio (M3) ]" or ("[ Tecla '" .. tostring(initialTarget) .. "' ]"))))
+                    StatusLab.Size = UDim2.new(1, -20, 0, 20)
+                    StatusLab.Position = UDim2.new(0, 10, 0, 4)
+                    StatusLab.BackgroundTransparency = 1
+                    StatusLab.Font = Enum.Font.GothamBold
+                    StatusLab.TextColor3 = Themes.Accent
+                    StatusLab.TextSize = 12
+                    StatusLab.TextXAlignment = Enum.TextXAlignment.Left
+                    StatusLab.ZIndex = 84
+                    StatusLab.Parent = DisplayFrame
+
+                    local Container = Instance.new("Frame")
+                    Container.Size = UDim2.new(1, -20, 0, 205)
+                    Container.Position = UDim2.new(0, 10, 0, 28)
+                    Container.BackgroundTransparency = 1
+                    Container.ZIndex = 84
+                    Container.Parent = DisplayFrame
+
+                    -- MOUSE INTERATIVO (Inspirado no visual roxo enviado pelo usuário)
+                    local MouseFrame = Instance.new("Frame")
+                    MouseFrame.Size = UDim2.new(0, 80, 0, 130)
+                    MouseFrame.Position = UDim2.new(0, 0, 0, 10)
+                    MouseFrame.BackgroundColor3 = Color3.fromRGB(180, 160, 240)
+                    MouseFrame.ZIndex = 84
+                    MouseFrame.Parent = Container
+                    local MFC = Instance.new("UICorner"); MFC.CornerRadius = UDim.new(0, 24); MFC.Parent = MouseFrame
+                    local MFS = Instance.new("UIStroke"); MFS.Color = Themes.Accent; MFS.Thickness = 1.5; MFS.Parent = MouseFrame
+
+                    -- Botão Mouse Esquerdo (M1)
+                    local M1Btn = Instance.new("TextButton")
+                    M1Btn.Size = UDim2.new(0.48, 0, 0.45, 0)
+                    M1Btn.Position = UDim2.new(0, 0, 0, 0)
+                    M1Btn.BackgroundColor3 = Color3.fromRGB(150, 130, 220)
+                    M1Btn.Text = "M1\n(Esq)"
+                    M1Btn.Font = Enum.Font.GothamBold
+                    M1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    M1Btn.TextSize = 10
+                    M1Btn.ZIndex = 85
+                    M1Btn.Parent = MouseFrame
+                    local M1C = Instance.new("UICorner"); M1C.CornerRadius = UDim.new(0, 16); M1C.Parent = M1Btn
+
+                    -- Botão Mouse Direito (M2)
+                    local M2Btn = Instance.new("TextButton")
+                    M2Btn.Size = UDim2.new(0.48, 0, 0.45, 0)
+                    M2Btn.Position = UDim2.new(0.52, 0, 0, 0)
+                    M2Btn.BackgroundColor3 = Color3.fromRGB(150, 130, 220)
+                    M2Btn.Text = "M2\n(Dir)"
+                    M2Btn.Font = Enum.Font.GothamBold
+                    M2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    M2Btn.TextSize = 10
+                    M2Btn.ZIndex = 85
+                    M2Btn.Parent = MouseFrame
+                    local M2C = Instance.new("UICorner"); M2C.CornerRadius = UDim.new(0, 16); M2C.Parent = M2Btn
+
+                    -- Scroll / M3 (Meio)
+                    local M3Btn = Instance.new("TextButton")
+                    M3Btn.Size = UDim2.new(0, 16, 0, 26)
+                    M3Btn.Position = UDim2.new(0.5, -8, 0.12, 0)
+                    M3Btn.BackgroundColor3 = Color3.fromRGB(50, 45, 60)
+                    M3Btn.Text = "M3"
+                    M3Btn.Font = Enum.Font.GothamBold
+                    M3Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    M3Btn.TextSize = 8
+                    M3Btn.ZIndex = 86
+                    M3Btn.Parent = MouseFrame
+                    local M3C = Instance.new("UICorner"); M3C.CornerRadius = UDim.new(0, 4); M3C.Parent = M3Btn
+
+                    -- TECLADO INTERATIVO (Inspirado nas imagens enviadas pelo usuário)
+                    local KBFrame = Instance.new("Frame")
+                    KBFrame.Size = UDim2.new(1, -95, 1, 0)
+                    KBFrame.Position = UDim2.new(0, 95, 0, 0)
+                    KBFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+                    KBFrame.ZIndex = 84
+                    KBFrame.Parent = Container
+                    local KBC = Instance.new("UICorner"); KBC.CornerRadius = UDim.new(0, 8); KBC.Parent = KBFrame
+                    local KBS = Instance.new("UIStroke"); KBS.Color = Color3.fromRGB(50, 50, 60); KBS.Thickness = 1; KBS.Parent = KBFrame
+
+                    local rows = {
+                        {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+                        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+                        {"A", "S", "D", "F", "G", "H", "J", "K", "L"},
+                        {"Z", "X", "C", "V", "B", "N", "M"},
+                        {"Space"}
+                    }
+
+                    local function updateSelection(tgtName, displayLabelText)
+                        StatusLab.Text = "Alvo de Auto Click: " .. displayLabelText
+                        pcall(onSelect, tgtName)
+                    end
+
+                    M1Btn.MouseButton1Click:Connect(function() updateSelection("MouseButton1", "[ Mouse Esq (M1) ]") end)
+                    M2Btn.MouseButton1Click:Connect(function() updateSelection("MouseButton2", "[ Mouse Dir (M2) ]") end)
+                    M3Btn.MouseButton1Click:Connect(function() updateSelection("MouseButton3", "[ Mouse Meio (M3) ]") end)
+
+                    local posY = 8
+                    for _, rowKeys in ipairs(rows) do
+                        local keyHeight = 22
+
+                        local RowContainer = Instance.new("Frame")
+                        RowContainer.Size = UDim2.new(1, -12, 0, keyHeight)
+                        RowContainer.Position = UDim2.new(0, 6, 0, posY)
+                        RowContainer.BackgroundTransparency = 1
+                        RowContainer.ZIndex = 85
+                        RowContainer.Parent = KBFrame
+
+                        local UILL = Instance.new("UIListLayout")
+                        UILL.FillDirection = Enum.FillDirection.Horizontal
+                        UILL.HorizontalAlignment = Enum.HorizontalAlignment.Center
+                        UILL.Padding = UDim.new(0, 3)
+                        UILL.Parent = RowContainer
+
+                        for _, kName in ipairs(rowKeys) do
+                            local KBtn = Instance.new("TextButton")
+                            KBtn.Size = UDim2.new(0, (kName == "Space" and 120 or 20), 0, keyHeight)
+                            KBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+                            KBtn.Text = kName
+                            KBtn.Font = Enum.Font.GothamBold
+                            KBtn.TextColor3 = Color3.fromRGB(230, 230, 240)
+                            KBtn.TextSize = 10
+                            KBtn.ZIndex = 86
+                            KBtn.Parent = RowContainer
+                            local KC = Instance.new("UICorner"); KC.CornerRadius = UDim.new(0, 4); KC.Parent = KBtn
+
+                            KBtn.MouseButton1Click:Connect(function()
+                                updateSelection(kName, "[ Tecla '" .. kName .. "' ]")
+                            end)
+                        end
+
+                        posY = posY + keyHeight + 4
+                    end
+
+                    return DisplayFrame
+                end
+
                 function SubGroupObj:Slider(stext, smin, smax, sdefault, scallback, sformatter)
                     local SSFrame = CreateSubElementFrame()
                     SSFrame.Size = UDim2.new(1, 0, 0, 50)
@@ -4428,14 +4664,15 @@ function VoidLib:CreateWindow()
                 return ToggleObj
             end
 
-            function GroupObj:ToggleKeybind(text, defaultState, defaultKey, toggleCallback, keybindCallback)
+            function GroupObj:ToggleKeybind(text, defaultState, defaultKey, toggleCallback, keybindCallback, subConfigCallback)
                 local TFrame = CreateElementFrame(text)
+                local hasSub = type(subConfigCallback) == "function"
                 
-                local keybindOffset = 95
+                local rightOffset = hasSub and 125 or 95
                 local TLab = Instance.new("TextLabel")
                 TLab.Text = text
                 TLab.Position = UDim2.new(0, 10, 0, 0)
-                TLab.Size = UDim2.new(1, -(keybindOffset + 45), 1, 0)
+                TLab.Size = UDim2.new(1, -(rightOffset + 45), 1, 0)
                 TLab.BackgroundTransparency = 1
                 TLab.Font = Enum.Font.GothamMedium
                 TLab.TextColor3 = Themes.Text
@@ -4444,14 +4681,15 @@ function VoidLib:CreateWindow()
                 TLab.Parent = TFrame
                 
                 local KeyBtn = Instance.new("TextButton")
-                KeyBtn.Size = UDim2.new(0, 36, 0, 22)
-                KeyBtn.Position = UDim2.new(1, -95, 0.5, -11)
+                KeyBtn.Size = UDim2.new(0, 42, 0, 22)
+                KeyBtn.Position = UDim2.new(1, -(hasSub and 125 or 95), 0.5, -11)
                 KeyBtn.BackgroundColor3 = Themes.Element
                 local currentKey = typeof(defaultKey) == "EnumItem" and defaultKey or Enum.KeyCode.E
                 KeyBtn.Text = currentKey.Name
                 KeyBtn.Font = Enum.Font.GothamBold
                 KeyBtn.TextColor3 = Themes.Text
                 KeyBtn.TextSize = 11
+                KeyBtn.ZIndex = 86
                 KeyBtn.Parent = TFrame
                 local KBC = Instance.new("UICorner"); KBC.CornerRadius = UDim.new(0, 6); KBC.Parent = KeyBtn
                 local KBS = Instance.new("UIStroke"); KBS.Color = Themes.Accent; KBS.Thickness = 1; KBS.Transparency = 0.5; KBS.Parent = KeyBtn
@@ -4500,6 +4738,34 @@ function VoidLib:CreateWindow()
                 local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(1, 0); CC.Parent = circle
 
                 local enabled = defaultState
+                local GearBtn = nil
+                local subWindowFrame = nil
+
+                if hasSub then
+                    GearBtn = Instance.new("ImageButton")
+                    GearBtn.Size = UDim2.new(0, 20, 0, 20)
+                    GearBtn.Position = UDim2.new(1, -78, 0.5, -10)
+                    GearBtn.BackgroundTransparency = 1
+                    GearBtn.ZIndex = 86
+                    GearBtn.Image = "rbxassetid://6031280882" -- Ícone de engrenagem
+                    GearBtn.ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(150, 150, 160)
+                    GearBtn.ImageTransparency = enabled and 0 or 0.3
+                    GearBtn.Parent = TFrame
+
+                    local subFrame, subGroupObj = CreateSubWindow("Configurações - " .. text)
+                    subWindowFrame = subFrame
+
+                    GearBtn.MouseButton1Click:Connect(function()
+                        subWindowFrame.Visible = not subWindowFrame.Visible
+                        if subWindowFrame.Visible then
+                            subWindowFrame.Size = UDim2.new(0, 360, 0, 0)
+                            subWindowFrame.BackgroundTransparency = 1
+                            TweenService:Create(subWindowFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 360, 0, 320), BackgroundTransparency = 0}):Play()
+                        end
+                    end)
+
+                    pcall(subConfigCallback, subGroupObj)
+                end
 
                 local ToggleObj = {
                     Frame = TFrame,
@@ -4509,6 +4775,12 @@ function VoidLib:CreateWindow()
                         enabled = val
                         TweenService:Create(circle, TweenInfo.new(0.2), {Position = enabled and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
                         TweenService:Create(TBtn, TweenInfo.new(0.2), {BackgroundColor3 = enabled and Themes.Accent or Color3.fromRGB(60,60,65)}):Play()
+                        if GearBtn then
+                            TweenService:Create(GearBtn, TweenInfo.new(0.2), {
+                                ImageColor3 = enabled and Themes.Accent or Color3.fromRGB(150, 150, 160),
+                                ImageTransparency = enabled and 0 or 0.3
+                            }):Play()
+                        end
                         pcall(toggleCallback, enabled)
                     end,
                     SetKey = function(key)
@@ -5960,6 +6232,24 @@ do
         AFKHud.Visible = v
     end)
     ConfigManager:Register("antiAfkEnabled", antiAfkToggle)
+
+    -- >>> CATEGORIA: AUTO CLICK
+    local AutoClickGroup = Local:Group("Auto Click")
+    local autoClickToggle = AutoClickGroup:ToggleKeybind("Selecionar/Ativar Auto Click", AutoClickerCore:IsMainEnabled(), AutoClickerCore:GetTriggerKey(), function(v)
+        AutoClickerCore:SetMainEnabled(v)
+    end, function(k)
+        AutoClickerCore:SetTriggerKey(k)
+    end, function(sub)
+        local intervalInput = sub:Input("Intervalo de Clique", AutoClickerCore:GetIntervalMS(), 1, 10000, function(v)
+            AutoClickerCore:SetIntervalMS(v)
+        end, "ms")
+        ConfigManager:Register("autoClickInterval", intervalInput)
+
+        sub:KeyboardMouseDisplay(AutoClickerCore:GetClickTarget(), function(selectedTarget)
+            AutoClickerCore:SetClickTarget(selectedTarget)
+        end)
+    end)
+    ConfigManager:Register("autoClickEnabled", autoClickToggle)
 end -- End Local Block
 
 
