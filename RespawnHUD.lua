@@ -336,7 +336,35 @@ local AimbotCore = (function()
         return Enum.ContextActionResult.Sink
     end
 
-    local aimKey = Enum.UserInputType.MouseButton2 -- Padrão: Botão Direito (M2)
+    local isCameraFrozen = false
+    local frozenCFrame = nil
+
+    local function FreezeCamera()
+        if not isCameraFrozen then
+            isCameraFrozen = true
+            frozenCFrame = camera.CFrame
+            camera.CameraType = Enum.CameraType.Scriptable
+            ContextActionService:BindActionAtPriority(
+                "DreezyFreezeCamera", 
+                BlockCameraRightClick, 
+                false, 
+                Enum.ContextActionPriority.High.Value + 2000, 
+                Enum.UserInputType.MouseButton2
+            )
+        end
+        if frozenCFrame then
+            camera.CFrame = frozenCFrame
+        end
+    end
+
+    local function UnfreezeCamera()
+        if isCameraFrozen then
+            isCameraFrozen = false
+            frozenCFrame = nil
+            camera.CameraType = Enum.CameraType.Custom
+            ContextActionService:UnbindAction("DreezyFreezeCamera")
+        end
+    end
 
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
@@ -344,6 +372,7 @@ local AimbotCore = (function()
             isActive = false 
             currentTarget = nil
             lastLockedTarget = nil
+            UnfreezeCamera()
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
         updateFOVCircle()
@@ -363,6 +392,7 @@ local AimbotCore = (function()
         useCursorAim = enabled
         if getgenv then getgenv().CursorAim = enabled end
         if not enabled then
+            UnfreezeCamera()
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
         updateFOVCircle()
@@ -413,6 +443,7 @@ local AimbotCore = (function()
     local function HandleAimEnd(input)
         if IsInputMatch(input, aimKey) then
             isActive = false
+            UnfreezeCamera()
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
     end
@@ -512,6 +543,9 @@ local AimbotCore = (function()
                     end
                     
                     if useCursorAim then
+                        -- CONGELA A CÂMERA TOTALMENTE ENQUANTO O CURSOR ESTIVER GRUDADO NO INIMIGO
+                        FreezeCamera()
+
                         -- CURSOR AIM: Move e trava diretamente o mouse no inimigo na tela sem mexer a câmera 3D
                         local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
                         if onScreen then
@@ -531,6 +565,7 @@ local AimbotCore = (function()
                             end
                         end
                     else
+                        UnfreezeCamera()
                         -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt sem rotação descontrolada
                         local currentCFrame = camera.CFrame
                         local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
@@ -540,15 +575,18 @@ local AimbotCore = (function()
                     -- Se a parte do corpo não está visível, solta a mira
                     currentTarget = nil
                     lastLockedTarget = nil
+                    UnfreezeCamera()
                 end
             else
                 currentTarget = nil
                 lastLockedTarget = nil
+                UnfreezeCamera()
             end
         else
             -- Destrava quando soltar o botão
             currentTarget = nil
             lastLockedTarget = nil
+            UnfreezeCamera()
         end
     end)
 
