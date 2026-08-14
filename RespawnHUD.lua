@@ -326,18 +326,27 @@ local AimbotCore = (function()
         return nearestTarget
     end
 
+    local ContextActionService = game:GetService("ContextActionService")
+    local function BlockCameraRightClick()
+        return Enum.ContextActionResult.Sink
+    end
+
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
         if not enabled then 
             isActive = false 
             currentTarget = nil
             lastLockedTarget = nil
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
         updateFOVCircle()
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
         if getgenv then getgenv().CursorAim = enabled end
+        if not enabled then
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
+        end
         updateFOVCircle()
     end
     function AimbotCore:IsCursorAim() return useCursorAim end
@@ -352,47 +361,29 @@ local AimbotCore = (function()
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
-    -- Ativa/desativa a mira via input
     local function HandleAimStart(input, gpe)
         if not isEnabled then return end
         local aimInput = getgenv().AimbotInput or "RightClick"
-        local matched = false
         if aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2 then
-            matched = true
-        elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if not gpe then matched = true end
-        elseif input.UserInputType == Enum.UserInputType.Keyboard then
-            pcall(function()
-                if input.KeyCode.Name:lower() == aimInput:lower() then
-                    if not gpe then matched = true end
-                end
-            end)
-        end
-
-        if matched then
             isActive = true
+            if useCursorAim then
+                -- Bloqueia o arrasto de câmera nativo do Roblox no botão direito enquanto estiver mirando no Cursor Aim
+                ContextActionService:BindActionAtPriority("DreezyBlockCamDrag", BlockCameraRightClick, false, Enum.ContextActionPriority.High.Value + 1000, Enum.UserInputType.MouseButton2)
+            end
+        elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if not gpe then isActive = true end
+        elseif input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower() then
+            if not gpe then isActive = true end
         end
     end
 
     local function HandleAimEnd(input)
         local aimInput = getgenv().AimbotInput or "RightClick"
-        local matched = false
-        if aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2 then
-            matched = true
-        elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
-            matched = true
-        elseif input.UserInputType == Enum.UserInputType.Keyboard then
-            pcall(function()
-                if input.KeyCode.Name:lower() == aimInput:lower() then
-                    matched = true
-                end
-            end)
-        end
-
-        if matched then
+        if (aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2) or
+           (aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1) or
+           (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower()) then
             isActive = false
-            currentTarget = nil
-            lastLockedTarget = nil
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
     end
 
@@ -426,15 +417,18 @@ local AimbotCore = (function()
 
     local function getRandomPart(char)
         if not char then return "Head" end
+        -- 40% Chance for Head, 60% Chance for Random Part
         if math.random() <= 0.4 then 
             return "Head" 
         end
+
         local possible = {}
         for _, name in pairs(bodyParts) do
             if char:FindFirstChild(name) then
                 table.insert(possible, name)
             end
         end
+        
         if #possible > 0 then
             return possible[math.random(1, #possible)]
         else
@@ -443,12 +437,6 @@ local AimbotCore = (function()
     end
 
     RunService.RenderStepped:Connect(function()
-        if isEnabled then 
-            updateFOVCircle() 
-        elseif fovCircle and isDrawingApiAvailable then 
-            fovCircle.Visible = false 
-        end
-
         if isEnabled and isActive then
             -- Trava firme no alvo enquanto o botão de mira estiver segurado!
             if not isTargetValid(currentTarget) then
@@ -477,45 +465,39 @@ local AimbotCore = (function()
 
                 local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
                 if targetInst then
-                    local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
-                    if onScreen and viewportPoint.Z > 0 then
-                        if useCursorAim then
-                            -- CURSOR AIM: Move o mouse para a posição 2D do alvo na tela
-                            -- Com clamp rígido para NUNCA ser arremessado para outro monitor ou fora da janela
-                            local viewportSize = camera.ViewportSize
-                            if viewportPoint.X >= 0 and viewportPoint.X <= viewportSize.X and viewportPoint.Y >= 0 and viewportPoint.Y <= viewportSize.Y then
-                                local mousePos = UserInputService:GetMouseLocation()
-                                local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
-                                local delta = target2D - mousePos
+                    -- SMOOTHNESS / AIM ASSIST LOGIC
+                    local smoothing = 1
+                    if getgenv().AimAssistMode then
+                        local smoothVal = getgenv().AimbotSmoothness or 10
+                        smoothing = 1 / math.max(1, smoothVal)
+                    else
+                        smoothing = getgenv().AimbotEasing or 1
+                    end
+                    
+                    if useCursorAim then
+                        -- CURSOR AIM: Move e trava diretamente o mouse no inimigo na tela sem mexer a câmera 3D
+                        local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
+                        if onScreen then
+                            local mousePos = UserInputService:GetMouseLocation()
+                            local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
+                            local delta = target2D - mousePos
 
-                                -- Limite de deslocamento por frame (máximo 60px por frame para evitar saltos descontrolados)
-                                local maxStep = 60
-                                local moveX = math.clamp(delta.X, -maxStep, maxStep)
-                                local moveY = math.clamp(delta.Y, -maxStep, maxStep)
+                            local moveX = delta.X * smoothing
+                            local moveY = delta.Y * smoothing
 
-                                if math.abs(moveX) > 0.5 or math.abs(moveY) > 0.5 then
-                                    if mousemoverel then
-                                        mousemoverel(moveX, moveY)
-                                    elseif VirtualInputManager then
-                                        local newX = math.clamp(mousePos.X + moveX, 0, viewportSize.X)
-                                        local newY = math.clamp(mousePos.Y + moveY, 0, viewportSize.Y)
-                                        VirtualInputManager:SendMouseMoveEvent(newX, newY, game)
-                                    end
-                                end
+                            if mousemoverel then
+                                mousemoverel(moveX, moveY)
+                            elseif mousemoveabs then
+                                mousemoveabs(mousePos.X + moveX, mousePos.Y + moveY)
+                            elseif VirtualInputManager then
+                                VirtualInputManager:SendMouseMoveEvent(mousePos.X + moveX, mousePos.Y + moveY, game)
                             end
-                        else
-                            -- CAMERA AIM: Move a câmera 3D com lookAt limpo e fluido sem mexer no mouse
-                            local currentCFrame = camera.CFrame
-                            local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
-                            local smoothing = 1
-                            if getgenv().AimAssistMode then
-                                local smoothVal = getgenv().AimbotSmoothness or 10
-                                smoothing = 1 / math.max(1, smoothVal)
-                            else
-                                smoothing = math.clamp(getgenv().AimbotEasing or 1, 0.05, 1)
-                            end
-                            camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                         end
+                    else
+                        -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt sem rotação descontrolada
+                        local currentCFrame = camera.CFrame
+                        local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
+                        camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                     end
                 end
             end
@@ -524,6 +506,10 @@ local AimbotCore = (function()
             currentTarget = nil
             lastLockedTarget = nil
         end
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        if isEnabled then updateFOVCircle() elseif fovCircle and isDrawingApiAvailable then fovCircle.Visible = false end
     end)
 
     if getgenv then
