@@ -326,33 +326,18 @@ local AimbotCore = (function()
         return nearestTarget
     end
 
-    -- Salva o MouseBehavior original para restaurar depois
-    local savedMouseBehavior = nil
-    local isCursorAimLocked = false
-
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
         if not enabled then 
             isActive = false 
             currentTarget = nil
             lastLockedTarget = nil
-            -- Restaura o MouseBehavior se estava travado
-            if isCursorAimLocked and savedMouseBehavior then
-                pcall(function() UserInputService.MouseBehavior = savedMouseBehavior end)
-                isCursorAimLocked = false
-                savedMouseBehavior = nil
-            end
         end
         updateFOVCircle()
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
         if getgenv then getgenv().CursorAim = enabled end
-        if not enabled and isCursorAimLocked and savedMouseBehavior then
-            pcall(function() UserInputService.MouseBehavior = savedMouseBehavior end)
-            isCursorAimLocked = false
-            savedMouseBehavior = nil
-        end
         updateFOVCircle()
     end
     function AimbotCore:IsCursorAim() return useCursorAim end
@@ -386,14 +371,6 @@ local AimbotCore = (function()
 
         if matched then
             isActive = true
-            if useCursorAim and not isCursorAimLocked then
-                -- CHAVE DO FIX: Salva o MouseBehavior atual e força Default
-                -- MouseBehavior.Default = cursor livre, visível, SEM rotação de câmera via mouse delta
-                -- Isso impede o CameraModule do Roblox de ler GetMouseDelta() para girar a câmera
-                savedMouseBehavior = UserInputService.MouseBehavior
-                pcall(function() UserInputService.MouseBehavior = Enum.MouseBehavior.Default end)
-                isCursorAimLocked = true
-            end
         end
     end
 
@@ -414,12 +391,8 @@ local AimbotCore = (function()
 
         if matched then
             isActive = false
-            -- Restaura o MouseBehavior original ao soltar o botão
-            if isCursorAimLocked and savedMouseBehavior then
-                pcall(function() UserInputService.MouseBehavior = savedMouseBehavior end)
-                isCursorAimLocked = false
-                savedMouseBehavior = nil
-            end
+            currentTarget = nil
+            lastLockedTarget = nil
         end
     end
 
@@ -477,16 +450,6 @@ local AimbotCore = (function()
         end
 
         if isEnabled and isActive then
-            -- Enquanto Cursor Aim ativo, mantém MouseBehavior.Default a cada frame
-            -- para impedir que o CameraModule do Roblox restaure o LockCenter/LockCurrentPosition
-            if useCursorAim and isCursorAimLocked then
-                pcall(function()
-                    if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
-                        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-                    end
-                end)
-            end
-
             -- Trava firme no alvo enquanto o botão de mira estiver segurado!
             if not isTargetValid(currentTarget) then
                 currentTarget = findNearestTarget()
@@ -514,36 +477,45 @@ local AimbotCore = (function()
 
                 local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
                 if targetInst then
-                    if useCursorAim then
-                        -- CURSOR AIM: Move o cursor para a posição 2D do alvo na viewport
-                        -- A câmera NÃO gira porque MouseBehavior está em Default (sem mouse delta para câmera)
-                        local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
-                        if onScreen then
-                            local mousePos = UserInputService:GetMouseLocation()
-                            local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
-                            local delta = target2D - mousePos
+                    local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
+                    if onScreen and viewportPoint.Z > 0 then
+                        if useCursorAim then
+                            -- CURSOR AIM: Move o mouse para a posição 2D do alvo na tela
+                            -- Com clamp rígido para NUNCA ser arremessado para outro monitor ou fora da janela
+                            local viewportSize = camera.ViewportSize
+                            if viewportPoint.X >= 0 and viewportPoint.X <= viewportSize.X and viewportPoint.Y >= 0 and viewportPoint.Y <= viewportSize.Y then
+                                local mousePos = UserInputService:GetMouseLocation()
+                                local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
+                                local delta = target2D - mousePos
 
-                            -- Usa mousemoverel com delta direto (snap instantâneo)
-                            if mousemoverel then
-                                mousemoverel(delta.X, delta.Y)
-                            elseif mousemoveabs then
-                                mousemoveabs(target2D.X, target2D.Y)
-                            elseif Input and Input.MouseMove then
-                                Input.MouseMove(target2D.X, target2D.Y)
+                                -- Limite de deslocamento por frame (máximo 60px por frame para evitar saltos descontrolados)
+                                local maxStep = 60
+                                local moveX = math.clamp(delta.X, -maxStep, maxStep)
+                                local moveY = math.clamp(delta.Y, -maxStep, maxStep)
+
+                                if math.abs(moveX) > 0.5 or math.abs(moveY) > 0.5 then
+                                    if mousemoverel then
+                                        mousemoverel(moveX, moveY)
+                                    elseif VirtualInputManager then
+                                        local newX = math.clamp(mousePos.X + moveX, 0, viewportSize.X)
+                                        local newY = math.clamp(mousePos.Y + moveY, 0, viewportSize.Y)
+                                        VirtualInputManager:SendMouseMoveEvent(newX, newY, game)
+                                    end
+                                end
                             end
-                        end
-                    else
-                        -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt
-                        local currentCFrame = camera.CFrame
-                        local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
-                        local smoothing = 1
-                        if getgenv().AimAssistMode then
-                            local smoothVal = getgenv().AimbotSmoothness or 10
-                            smoothing = 1 / math.max(1, smoothVal)
                         else
-                            smoothing = math.clamp(getgenv().AimbotEasing or 1, 0.1, 1)
+                            -- CAMERA AIM: Move a câmera 3D com lookAt limpo e fluido sem mexer no mouse
+                            local currentCFrame = camera.CFrame
+                            local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
+                            local smoothing = 1
+                            if getgenv().AimAssistMode then
+                                local smoothVal = getgenv().AimbotSmoothness or 10
+                                smoothing = 1 / math.max(1, smoothVal)
+                            else
+                                smoothing = math.clamp(getgenv().AimbotEasing or 1, 0.05, 1)
+                            end
+                            camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                         end
-                        camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                     end
                 end
             end
