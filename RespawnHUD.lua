@@ -437,6 +437,12 @@ local AimbotCore = (function()
     end
 
     RunService.RenderStepped:Connect(function()
+        if isEnabled then 
+            updateFOVCircle() 
+        elseif fovCircle and isDrawingApiAvailable then 
+            fovCircle.Visible = false 
+        end
+
         if isEnabled and isActive then
             -- Trava firme no alvo enquanto o botão de mira estiver segurado!
             if not isTargetValid(currentTarget) then
@@ -465,38 +471,33 @@ local AimbotCore = (function()
 
                 local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
                 if targetInst then
-                    -- SMOOTHNESS / AIM ASSIST LOGIC
-                    local smoothing = 1
-                    if getgenv().AimAssistMode then
-                        local smoothVal = getgenv().AimbotSmoothness or 10
-                        smoothing = 1 / math.max(1, smoothVal)
-                    else
-                        smoothing = getgenv().AimbotEasing or 1
-                    end
-                    
                     if useCursorAim then
-                        -- CURSOR AIM: Move e trava diretamente o mouse no inimigo na tela sem mexer a câmera 3D
+                        -- CURSOR AIM: Trava com 100% de aderência (snap perfeito direto no ponto sem desvio/delay acumulado)
                         local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
                         if onScreen then
                             local mousePos = UserInputService:GetMouseLocation()
                             local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
                             local delta = target2D - mousePos
 
-                            local moveX = delta.X * smoothing
-                            local moveY = delta.Y * smoothing
-
-                            if mousemoverel then
-                                mousemoverel(moveX, moveY)
-                            elseif mousemoveabs then
-                                mousemoveabs(mousePos.X + moveX, mousePos.Y + moveY)
+                            if mousemoveabs then
+                                mousemoveabs(target2D.X, target2D.Y)
+                            elseif mousemoverel then
+                                mousemoverel(delta.X, delta.Y)
                             elseif VirtualInputManager then
-                                VirtualInputManager:SendMouseMoveEvent(mousePos.X + moveX, mousePos.Y + moveY, game)
+                                VirtualInputManager:SendMouseMoveEvent(target2D.X, target2D.Y, game)
                             end
                         end
                     else
                         -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt sem rotação descontrolada
                         local currentCFrame = camera.CFrame
                         local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
+                        local smoothing = 1
+                        if getgenv().AimAssistMode then
+                            local smoothVal = getgenv().AimbotSmoothness or 10
+                            smoothing = 1 / math.max(1, smoothVal)
+                        else
+                            smoothing = math.clamp(getgenv().AimbotEasing or 1, 0.1, 1)
+                        end
                         camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                     end
                 end
@@ -506,10 +507,6 @@ local AimbotCore = (function()
             currentTarget = nil
             lastLockedTarget = nil
         end
-    end)
-
-    RunService.RenderStepped:Connect(function()
-        if isEnabled then updateFOVCircle() elseif fovCircle and isDrawingApiAvailable then fovCircle.Visible = false end
     end)
 
     if getgenv then
