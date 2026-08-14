@@ -417,14 +417,19 @@ local AimbotCore = (function()
                 return input.KeyCode == targetKey
             end
         elseif typeof(targetKey) == "string" then
-            if targetKey == "RightClick" or targetKey == "MouseButton2" or targetKey == "M2" then
+            local strKey = targetKey:lower()
+            if strKey == "rightclick" or strKey == "mousebutton2" or strKey == "m2" then
                 return input.UserInputType == Enum.UserInputType.MouseButton2
-            elseif targetKey == "LeftClick" or targetKey == "MouseButton1" or targetKey == "M1" then
+            elseif strKey == "leftclick" or strKey == "mousebutton1" or strKey == "m1" then
                 return input.UserInputType == Enum.UserInputType.MouseButton1
-            elseif targetKey == "MouseButton3" or targetKey == "M3" then
+            elseif strKey == "middleclick" or strKey == "mousebutton3" or strKey == "m3" then
                 return input.UserInputType == Enum.UserInputType.MouseButton3
+            elseif strKey == "mousebutton4" or strKey == "m4" or strKey == "side1" then
+                return input.UserInputType == Enum.UserInputType.MouseButton4
+            elseif strKey == "mousebutton5" or strKey == "m5" or strKey == "side2" then
+                return input.UserInputType == Enum.UserInputType.MouseButton5
             else
-                return input.KeyCode.Name:lower() == targetKey:lower()
+                return input.KeyCode.Name:lower() == strKey
             end
         end
         return false
@@ -4837,20 +4842,27 @@ function VoidLib:CreateWindow()
                         if key.EnumType == Enum.KeyCode then
                             return key.Name
                         elseif key.EnumType == Enum.UserInputType then
-                            if key == Enum.UserInputType.MouseButton2 then
-                                return "M2"
-                            elseif key == Enum.UserInputType.MouseButton1 then
+                            if key == Enum.UserInputType.MouseButton1 then
                                 return "M1"
+                            elseif key == Enum.UserInputType.MouseButton2 then
+                                return "M2"
                             elseif key == Enum.UserInputType.MouseButton3 then
                                 return "M3"
+                            elseif key == Enum.UserInputType.MouseButton4 then
+                                return "M4"
+                            elseif key == Enum.UserInputType.MouseButton5 then
+                                return "M5"
                             else
                                 return key.Name
                             end
                         end
                     elseif typeof(key) == "string" then
-                        if key == "RightClick" or key == "MouseButton2" or key == "M2" then return "M2" end
-                        if key == "LeftClick" or key == "MouseButton1" or key == "M1" then return "M1" end
-                        if key == "MouseButton3" or key == "M3" then return "M3" end
+                        local strKey = key:lower()
+                        if strKey == "rightclick" or strKey == "mousebutton2" or strKey == "m2" then return "M2" end
+                        if strKey == "leftclick" or strKey == "mousebutton1" or strKey == "m1" then return "M1" end
+                        if strKey == "middleclick" or strKey == "mousebutton3" or strKey == "m3" then return "M3" end
+                        if strKey == "mousebutton4" or strKey == "m4" or strKey == "side1" then return "M4" end
+                        if strKey == "mousebutton5" or strKey == "m5" or strKey == "side2" then return "M5" end
                         return key
                     end
                     return "M2"
@@ -4891,7 +4903,11 @@ function VoidLib:CreateWindow()
                             listening = false
                             KeyBtn.TextColor3 = Themes.Text
                             conn:Disconnect()
-                        elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.MouseButton3 then
+                        elseif input.UserInputType == Enum.UserInputType.MouseButton1 
+                            or input.UserInputType == Enum.UserInputType.MouseButton2 
+                            or input.UserInputType == Enum.UserInputType.MouseButton3
+                            or input.UserInputType == Enum.UserInputType.MouseButton4
+                            or input.UserInputType == Enum.UserInputType.MouseButton5 then
                             currentKey = input.UserInputType
                             KeyBtn.Text = FormatKeyName(currentKey)
                             pcall(keybindCallback, currentKey)
@@ -5226,10 +5242,34 @@ function VoidLib:CreateWindow()
                 TLab.TextSize = 13
                 TLab.TextXAlignment = Enum.TextXAlignment.Left
                 TLab.Parent = BFrame
+
+                local function FormatKeyName(key)
+                    if typeof(key) == "EnumItem" then
+                        if key.EnumType == Enum.KeyCode then
+                            return key.Name
+                        elseif key.EnumType == Enum.UserInputType then
+                            if key == Enum.UserInputType.MouseButton1 then return "M1"
+                            elseif key == Enum.UserInputType.MouseButton2 then return "M2"
+                            elseif key == Enum.UserInputType.MouseButton3 then return "M3"
+                            elseif key == Enum.UserInputType.MouseButton4 then return "M4"
+                            elseif key == Enum.UserInputType.MouseButton5 then return "M5"
+                            else return key.Name end
+                        end
+                    elseif typeof(key) == "string" then
+                        local strKey = key:lower()
+                        if strKey == "rightclick" or strKey == "mousebutton2" or strKey == "m2" then return "M2" end
+                        if strKey == "leftclick" or strKey == "mousebutton1" or strKey == "m1" then return "M1" end
+                        if strKey == "middleclick" or strKey == "mousebutton3" or strKey == "m3" then return "M3" end
+                        if strKey == "mousebutton4" or strKey == "m4" or strKey == "side1" then return "M4" end
+                        if strKey == "mousebutton5" or strKey == "m5" or strKey == "side2" then return "M5" end
+                        return key
+                    end
+                    return "E"
+                end
                 
                 local BindBtn = Instance.new("TextButton")
-                local keyName = defaultKey.Name
-                BindBtn.Text = keyName
+                local currentKey = defaultKey or Enum.KeyCode.E
+                BindBtn.Text = FormatKeyName(currentKey)
                 BindBtn.Size = UDim2.new(0, 80, 0, 20)
                 BindBtn.Position = UDim2.new(1, -90, 0.5, -10)
                 BindBtn.BackgroundColor3 = Color3.fromRGB(50,50,55)
@@ -5249,11 +5289,27 @@ function VoidLib:CreateWindow()
                     conn = UserInputService.InputBegan:Connect(function(input)
                         if input.UserInputType == Enum.UserInputType.Keyboard then
                             local newKey = input.KeyCode
-                            BindBtn.Text = newKey.Name
+                            if newKey ~= Enum.KeyCode.Escape then
+                                currentKey = newKey
+                                BindBtn.Text = FormatKeyName(currentKey)
+                                pcall(callback, currentKey)
+                            else
+                                BindBtn.Text = FormatKeyName(currentKey)
+                            end
                             BindBtn.TextColor3 = Themes.Text
                             getgenv().IsBindingKey = false
                             conn:Disconnect()
-                            pcall(callback, newKey)
+                        elseif input.UserInputType == Enum.UserInputType.MouseButton1 
+                            or input.UserInputType == Enum.UserInputType.MouseButton2 
+                            or input.UserInputType == Enum.UserInputType.MouseButton3
+                            or input.UserInputType == Enum.UserInputType.MouseButton4
+                            or input.UserInputType == Enum.UserInputType.MouseButton5 then
+                            currentKey = input.UserInputType
+                            BindBtn.Text = FormatKeyName(currentKey)
+                            BindBtn.TextColor3 = Themes.Text
+                            getgenv().IsBindingKey = false
+                            conn:Disconnect()
+                            pcall(callback, currentKey)
                         end
                     end)
                 end)
