@@ -326,18 +326,27 @@ local AimbotCore = (function()
         return nearestTarget
     end
 
+    local ContextActionService = game:GetService("ContextActionService")
+    local function BlockCameraRightClick()
+        return Enum.ContextActionResult.Sink
+    end
+
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
         if not enabled then 
             isActive = false 
             currentTarget = nil
             lastLockedTarget = nil
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
         updateFOVCircle()
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
         if getgenv then getgenv().CursorAim = enabled end
+        if not enabled then
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
+        end
         updateFOVCircle()
     end
     function AimbotCore:IsCursorAim() return useCursorAim end
@@ -352,12 +361,34 @@ local AimbotCore = (function()
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
-    mouse.Button2Down:Connect(function() if isEnabled and getgenv().AimbotInput == "RightClick" then isActive = true end end)
-    mouse.Button2Up:Connect(function() if isEnabled and getgenv().AimbotInput == "RightClick" then isActive = false end end)
-    mouse.Button1Down:Connect(function() if isEnabled and getgenv().AimbotInput == "LeftClick" then isActive = true end end)
-    mouse.Button1Up:Connect(function() if isEnabled and getgenv().AimbotInput == "LeftClick" then isActive = false end end)
-    mouse.KeyDown:Connect(function(key) if isEnabled and key == getgenv().AimbotInput:lower() then isActive = true end end)
-    mouse.KeyUp:Connect(function(key) if isEnabled and key == getgenv().AimbotInput:lower() then isActive = false end end)
+    local function HandleAimStart(input, gpe)
+        if not isEnabled then return end
+        local aimInput = getgenv().AimbotInput or "RightClick"
+        if aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2 then
+            isActive = true
+            if useCursorAim then
+                -- Bloqueia o arrasto de câmera nativo do Roblox no botão direito enquanto estiver mirando no Cursor Aim
+                ContextActionService:BindActionAtPriority("DreezyBlockCamDrag", BlockCameraRightClick, false, Enum.ContextActionPriority.High.Value + 1000, Enum.UserInputType.MouseButton2)
+            end
+        elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if not gpe then isActive = true end
+        elseif input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower() then
+            if not gpe then isActive = true end
+        end
+    end
+
+    local function HandleAimEnd(input)
+        local aimInput = getgenv().AimbotInput or "RightClick"
+        if (aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2) or
+           (aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1) or
+           (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower()) then
+            isActive = false
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
+        end
+    end
+
+    UserInputService.InputBegan:Connect(HandleAimStart)
+    UserInputService.InputEnded:Connect(HandleAimEnd)
 
     local currentTarget = nil
     local lastLockedTarget = nil
@@ -463,9 +494,10 @@ local AimbotCore = (function()
                             end
                         end
                     else
-                        -- CAMERA AIM: Move a câmera 3D para mirar no inimigo
+                        -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt sem rotação descontrolada
                         local currentCFrame = camera.CFrame
-                        camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), smoothing)
+                        local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
+                        camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                     end
                 end
             end
