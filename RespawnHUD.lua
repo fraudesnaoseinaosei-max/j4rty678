@@ -224,13 +224,18 @@ local AimbotCore = (function()
     local ignoredTeams = {} -- List of ignored team names
 
     local function isTargetVisible(targetPart, character)
+        if not targetPart or not character then return false end
         local cameraPos = camera.CFrame.Position
         local _, onscreen = camera:WorldToViewportPoint(targetPart.Position)
         if not onscreen then return false end
         
         local rayParams = RaycastParams.new()
         rayParams.FilterType = Enum.RaycastFilterType.Exclude
-        rayParams.FilterDescendantsInstances = {player.Character}
+        local ignoreList = {player.Character}
+        if camera then table.insert(ignoreList, camera) end
+        rayParams.FilterDescendantsInstances = ignoreList
+        rayParams.IgnoreWater = true
+
         local result = workspace:Raycast(cameraPos, targetPart.Position - cameraPos, rayParams)
         if result and result.Instance and result.Instance:IsDescendantOf(character) then
             return true
@@ -331,6 +336,8 @@ local AimbotCore = (function()
         return Enum.ContextActionResult.Sink
     end
 
+    local aimKey = Enum.UserInputType.MouseButton2 -- Padrão: Botão Direito (M2)
+
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
         if not enabled then 
@@ -340,6 +347,17 @@ local AimbotCore = (function()
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
         updateFOVCircle()
+    end
+    function AimbotCore:SetTriggerKey(k)
+        aimKey = k
+        if typeof(k) == "EnumItem" then
+            getgenv().AimbotInput = k.Name
+        elseif typeof(k) == "string" then
+            getgenv().AimbotInput = k
+        end
+    end
+    function AimbotCore:GetTriggerKey()
+        return aimKey
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
@@ -361,27 +379,39 @@ local AimbotCore = (function()
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
+    local function IsInputMatch(input, targetKey)
+        if typeof(targetKey) == "EnumItem" then
+            if targetKey.EnumType == Enum.UserInputType then
+                return input.UserInputType == targetKey
+            elseif targetKey.EnumType == Enum.KeyCode then
+                return input.KeyCode == targetKey
+            end
+        elseif typeof(targetKey) == "string" then
+            if targetKey == "RightClick" or targetKey == "MouseButton2" or targetKey == "M2" then
+                return input.UserInputType == Enum.UserInputType.MouseButton2
+            elseif targetKey == "LeftClick" or targetKey == "MouseButton1" or targetKey == "M1" then
+                return input.UserInputType == Enum.UserInputType.MouseButton1
+            elseif targetKey == "MouseButton3" or targetKey == "M3" then
+                return input.UserInputType == Enum.UserInputType.MouseButton3
+            else
+                return input.KeyCode.Name:lower() == targetKey:lower()
+            end
+        end
+        return false
+    end
+
     local function HandleAimStart(input, gpe)
         if not isEnabled then return end
-        local aimInput = getgenv().AimbotInput or "RightClick"
-        if aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2 then
+        if IsInputMatch(input, aimKey) then
             isActive = true
-            if useCursorAim then
-                -- Bloqueia o arrasto de câmera nativo do Roblox no botão direito enquanto estiver mirando no Cursor Aim
+            if useCursorAim and IsInputMatch(input, Enum.UserInputType.MouseButton2) then
                 ContextActionService:BindActionAtPriority("DreezyBlockCamDrag", BlockCameraRightClick, false, Enum.ContextActionPriority.High.Value + 1000, Enum.UserInputType.MouseButton2)
             end
-        elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if not gpe then isActive = true end
-        elseif input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower() then
-            if not gpe then isActive = true end
         end
     end
 
     local function HandleAimEnd(input)
-        local aimInput = getgenv().AimbotInput or "RightClick"
-        if (aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2) or
-           (aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1) or
-           (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower()) then
+        if IsInputMatch(input, aimKey) then
             isActive = false
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
@@ -404,6 +434,13 @@ local AimbotCore = (function()
         if ignoredPlayers[targetPlayer.Name] or (targetPlayer.DisplayName and ignoredPlayers[targetPlayer.DisplayName]) then return false end
         if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then return false end
         if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then return false end
+        
+        -- Checagem RÍGIDA de visibilidade / parede (se foi para trás da parede, perde a mira imediatamente!)
+        local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        if not head or not isTargetVisible(head, char) then
+            return false
+        end
+
         return true
     end
 
@@ -438,12 +475,12 @@ local AimbotCore = (function()
 
     RunService.RenderStepped:Connect(function()
         if isEnabled and isActive then
-            -- Trava firme no alvo enquanto o botão de mira estiver segurado!
+            -- Se não tiver alvo válido ou se o alvo atual foi para trás de uma parede / perdeu a visão, busca outro visível
             if not isTargetValid(currentTarget) then
                 currentTarget = findNearestTarget()
             end
 
-            if currentTarget and currentTarget.Character then
+            if currentTarget and currentTarget.Character and isTargetValid(currentTarget) then
                 -- Check if target changed to reset part
                 if currentTarget ~= lastLockedTarget then
                     lastLockedTarget = currentTarget
@@ -464,7 +501,7 @@ local AimbotCore = (function()
                 end
 
                 local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
-                if targetInst then
+                if targetInst and isTargetVisible(targetInst, currentTarget.Character) then
                     -- SMOOTHNESS / AIM ASSIST LOGIC
                     local smoothing = 1
                     if getgenv().AimAssistMode then
@@ -499,7 +536,14 @@ local AimbotCore = (function()
                         local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
                         camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                     end
+                else
+                    -- Se a parte do corpo não está visível, solta a mira
+                    currentTarget = nil
+                    lastLockedTarget = nil
                 end
+            else
+                currentTarget = nil
+                lastLockedTarget = nil
             end
         else
             -- Destrava quando soltar o botão
@@ -4750,12 +4794,36 @@ function VoidLib:CreateWindow()
                 TLab.TextXAlignment = Enum.TextXAlignment.Left
                 TLab.Parent = TFrame
                 
+                local function FormatKeyName(key)
+                    if typeof(key) == "EnumItem" then
+                        if key.EnumType == Enum.KeyCode then
+                            return key.Name
+                        elseif key.EnumType == Enum.UserInputType then
+                            if key == Enum.UserInputType.MouseButton2 then
+                                return "M2"
+                            elseif key == Enum.UserInputType.MouseButton1 then
+                                return "M1"
+                            elseif key == Enum.UserInputType.MouseButton3 then
+                                return "M3"
+                            else
+                                return key.Name
+                            end
+                        end
+                    elseif typeof(key) == "string" then
+                        if key == "RightClick" or key == "MouseButton2" or key == "M2" then return "M2" end
+                        if key == "LeftClick" or key == "MouseButton1" or key == "M1" then return "M1" end
+                        if key == "MouseButton3" or key == "M3" then return "M3" end
+                        return key
+                    end
+                    return "M2"
+                end
+
                 local KeyBtn = Instance.new("TextButton")
                 KeyBtn.Size = UDim2.new(0, 42, 0, 22)
                 KeyBtn.Position = UDim2.new(1, -(hasSub and 125 or 95), 0.5, -11)
                 KeyBtn.BackgroundColor3 = Themes.Element
-                local currentKey = typeof(defaultKey) == "EnumItem" and defaultKey or Enum.KeyCode.E
-                KeyBtn.Text = currentKey.Name
+                local currentKey = defaultKey or Enum.KeyCode.E
+                KeyBtn.Text = FormatKeyName(currentKey)
                 KeyBtn.Font = Enum.Font.GothamBold
                 KeyBtn.TextColor3 = Themes.Text
                 KeyBtn.TextSize = 11
@@ -4773,16 +4841,22 @@ function VoidLib:CreateWindow()
                     
                     local conn
                     conn = game:GetService("UserInputService").InputBegan:Connect(function(input, gpe)
-                        if gpe then return end
                         if input.UserInputType == Enum.UserInputType.Keyboard then
                             local pressedKey = input.KeyCode
                             if pressedKey ~= Enum.KeyCode.Escape then
                                 currentKey = pressedKey
-                                KeyBtn.Text = currentKey.Name
+                                KeyBtn.Text = FormatKeyName(currentKey)
                                 pcall(keybindCallback, currentKey)
                             else
-                                KeyBtn.Text = currentKey.Name
+                                KeyBtn.Text = FormatKeyName(currentKey)
                             end
+                            listening = false
+                            KeyBtn.TextColor3 = Themes.Text
+                            conn:Disconnect()
+                        elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.MouseButton3 then
+                            currentKey = input.UserInputType
+                            KeyBtn.Text = FormatKeyName(currentKey)
+                            pcall(keybindCallback, currentKey)
                             listening = false
                             KeyBtn.TextColor3 = Themes.Text
                             conn:Disconnect()
@@ -4854,11 +4928,9 @@ function VoidLib:CreateWindow()
                         pcall(toggleCallback, enabled)
                     end,
                     SetKey = function(key)
-                        if typeof(key) == "EnumItem" then
-                            currentKey = key
-                            KeyBtn.Text = currentKey.Name
-                            pcall(keybindCallback, currentKey)
-                        end
+                        currentKey = key
+                        KeyBtn.Text = FormatKeyName(currentKey)
+                        pcall(keybindCallback, currentKey)
                     end
                 }
 
@@ -5612,8 +5684,10 @@ do
         return list
     end
 
-    local aimbotToggle = AimbotGroup:Toggle("Ativar Aimbot", AimbotCore:IsEnabled(), function(v)
+    local aimbotToggle = AimbotGroup:ToggleKeybind("Ativar Aimbot", AimbotCore:IsEnabled(), AimbotCore:GetTriggerKey(), function(v)
         AimbotCore:SetEnabled(v)
+    end, function(k)
+        AimbotCore:SetTriggerKey(k)
     end, function(sub)
         local teamCheckToggle = sub:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
             getgenv().TeamCheck = v
