@@ -326,10 +326,9 @@ local AimbotCore = (function()
         return nearestTarget
     end
 
-    local ContextActionService = game:GetService("ContextActionService")
-    local function BlockCameraRightClick()
-        return Enum.ContextActionResult.Sink
-    end
+    -- Salva o MouseBehavior original para restaurar depois
+    local savedMouseBehavior = nil
+    local isCursorAimLocked = false
 
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
@@ -337,15 +336,22 @@ local AimbotCore = (function()
             isActive = false 
             currentTarget = nil
             lastLockedTarget = nil
-            ContextActionService:UnbindAction("DreezyBlockCamDrag")
+            -- Restaura o MouseBehavior se estava travado
+            if isCursorAimLocked and savedMouseBehavior then
+                pcall(function() UserInputService.MouseBehavior = savedMouseBehavior end)
+                isCursorAimLocked = false
+                savedMouseBehavior = nil
+            end
         end
         updateFOVCircle()
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
         if getgenv then getgenv().CursorAim = enabled end
-        if not enabled then
-            ContextActionService:UnbindAction("DreezyBlockCamDrag")
+        if not enabled and isCursorAimLocked and savedMouseBehavior then
+            pcall(function() UserInputService.MouseBehavior = savedMouseBehavior end)
+            isCursorAimLocked = false
+            savedMouseBehavior = nil
         end
         updateFOVCircle()
     end
@@ -361,29 +367,59 @@ local AimbotCore = (function()
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
+    -- Ativa/desativa a mira via input
     local function HandleAimStart(input, gpe)
         if not isEnabled then return end
         local aimInput = getgenv().AimbotInput or "RightClick"
+        local matched = false
         if aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2 then
-            isActive = true
-            if useCursorAim then
-                -- Bloqueia o arrasto de câmera nativo do Roblox no botão direito enquanto estiver mirando no Cursor Aim
-                ContextActionService:BindActionAtPriority("DreezyBlockCamDrag", BlockCameraRightClick, false, Enum.ContextActionPriority.High.Value + 1000, Enum.UserInputType.MouseButton2)
-            end
+            matched = true
         elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if not gpe then isActive = true end
-        elseif input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower() then
-            if not gpe then isActive = true end
+            if not gpe then matched = true end
+        elseif input.UserInputType == Enum.UserInputType.Keyboard then
+            pcall(function()
+                if input.KeyCode.Name:lower() == aimInput:lower() then
+                    if not gpe then matched = true end
+                end
+            end)
+        end
+
+        if matched then
+            isActive = true
+            if useCursorAim and not isCursorAimLocked then
+                -- CHAVE DO FIX: Salva o MouseBehavior atual e força Default
+                -- MouseBehavior.Default = cursor livre, visível, SEM rotação de câmera via mouse delta
+                -- Isso impede o CameraModule do Roblox de ler GetMouseDelta() para girar a câmera
+                savedMouseBehavior = UserInputService.MouseBehavior
+                pcall(function() UserInputService.MouseBehavior = Enum.MouseBehavior.Default end)
+                isCursorAimLocked = true
+            end
         end
     end
 
     local function HandleAimEnd(input)
         local aimInput = getgenv().AimbotInput or "RightClick"
-        if (aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2) or
-           (aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1) or
-           (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode.Name:lower() == aimInput:lower()) then
+        local matched = false
+        if aimInput == "RightClick" and input.UserInputType == Enum.UserInputType.MouseButton2 then
+            matched = true
+        elseif aimInput == "LeftClick" and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            matched = true
+        elseif input.UserInputType == Enum.UserInputType.Keyboard then
+            pcall(function()
+                if input.KeyCode.Name:lower() == aimInput:lower() then
+                    matched = true
+                end
+            end)
+        end
+
+        if matched then
             isActive = false
-            ContextActionService:UnbindAction("DreezyBlockCamDrag")
+            -- Restaura o MouseBehavior original ao soltar o botão
+            if isCursorAimLocked and savedMouseBehavior then
+                pcall(function() UserInputService.MouseBehavior = savedMouseBehavior end)
+                isCursorAimLocked = false
+                savedMouseBehavior = nil
+            end
         end
     end
 
@@ -417,18 +453,15 @@ local AimbotCore = (function()
 
     local function getRandomPart(char)
         if not char then return "Head" end
-        -- 40% Chance for Head, 60% Chance for Random Part
         if math.random() <= 0.4 then 
             return "Head" 
         end
-
         local possible = {}
         for _, name in pairs(bodyParts) do
             if char:FindFirstChild(name) then
                 table.insert(possible, name)
             end
         end
-        
         if #possible > 0 then
             return possible[math.random(1, #possible)]
         else
@@ -444,6 +477,16 @@ local AimbotCore = (function()
         end
 
         if isEnabled and isActive then
+            -- Enquanto Cursor Aim ativo, mantém MouseBehavior.Default a cada frame
+            -- para impedir que o CameraModule do Roblox restaure o LockCenter/LockCurrentPosition
+            if useCursorAim and isCursorAimLocked then
+                pcall(function()
+                    if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                    end
+                end)
+            end
+
             -- Trava firme no alvo enquanto o botão de mira estiver segurado!
             if not isTargetValid(currentTarget) then
                 currentTarget = findNearestTarget()
@@ -472,23 +515,25 @@ local AimbotCore = (function()
                 local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
                 if targetInst then
                     if useCursorAim then
-                        -- CURSOR AIM: Trava com 100% de aderência (snap perfeito direto no ponto sem desvio/delay acumulado)
+                        -- CURSOR AIM: Move o cursor para a posição 2D do alvo na viewport
+                        -- A câmera NÃO gira porque MouseBehavior está em Default (sem mouse delta para câmera)
                         local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
                         if onScreen then
                             local mousePos = UserInputService:GetMouseLocation()
                             local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
                             local delta = target2D - mousePos
 
-                            if mousemoveabs then
-                                mousemoveabs(target2D.X, target2D.Y)
-                            elseif mousemoverel then
+                            -- Usa mousemoverel com delta direto (snap instantâneo)
+                            if mousemoverel then
                                 mousemoverel(delta.X, delta.Y)
-                            elseif VirtualInputManager then
-                                VirtualInputManager:SendMouseMoveEvent(target2D.X, target2D.Y, game)
+                            elseif mousemoveabs then
+                                mousemoveabs(target2D.X, target2D.Y)
+                            elseif Input and Input.MouseMove then
+                                Input.MouseMove(target2D.X, target2D.Y)
                             end
                         end
                     else
-                        -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt sem rotação descontrolada
+                        -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt
                         local currentCFrame = camera.CFrame
                         local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
                         local smoothing = 1
