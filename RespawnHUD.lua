@@ -277,6 +277,10 @@ local AimbotCore = (function()
     local function findNearestTarget()
         local nearestTarget = nil
         local nearestDistance = math.huge
+        local viewportSize = camera.ViewportSize
+        local screenOrigin = useCursorAim and UserInputService:GetMouseLocation() or Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+        local maxFov = getgenv().AimbotFOV or 100
+
         for _, targetPlayer in pairs(Players:GetPlayers()) do
             if targetPlayer ~= player then
                 pcall(function()
@@ -302,12 +306,17 @@ local AimbotCore = (function()
                     end
 
                     if shouldTarget and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") and targetPlayer.Character:FindFirstChild("Humanoid") then
-                        if not isTargetInFOV(targetPlayer.Character.Head) then return end
-                        local distance = (mouse.Hit.Position - targetPlayer.Character.Head.Position).magnitude
-                        if distance < nearestDistance then
-                            if isTargetVisible(targetPlayer.Character.Head, targetPlayer.Character) and targetPlayer.Character.Humanoid.Health > 0 then
-                                nearestTarget = targetPlayer
-                                nearestDistance = distance
+                        local head = targetPlayer.Character.Head
+                        local humanoid = targetPlayer.Character.Humanoid
+                        if humanoid.Health > 0 and isTargetVisible(head, targetPlayer.Character) then
+                            local viewportPoint, onScreen = camera:WorldToViewportPoint(head.Position)
+                            if onScreen then
+                                local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
+                                local dist2D = (target2D - screenOrigin).Magnitude
+                                if dist2D <= maxFov and dist2D < nearestDistance then
+                                    nearestTarget = targetPlayer
+                                    nearestDistance = dist2D
+                                end
                             end
                         end
                     end
@@ -319,12 +328,17 @@ local AimbotCore = (function()
 
     function AimbotCore:SetEnabled(enabled)
         isEnabled = enabled
-        if not enabled then isActive = false end
+        if not enabled then 
+            isActive = false 
+            currentTarget = nil
+            lastLockedTarget = nil
+        end
         updateFOVCircle()
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
         if getgenv then getgenv().CursorAim = enabled end
+        updateFOVCircle()
     end
     function AimbotCore:IsCursorAim() return useCursorAim end
     function AimbotCore:SetFOV(fov)
@@ -346,16 +360,24 @@ local AimbotCore = (function()
     mouse.KeyUp:Connect(function(key) if isEnabled and key == getgenv().AimbotInput:lower() then isActive = false end end)
 
     local currentTarget = nil
-    task.spawn(function()
-        while true do
-            if isEnabled then currentTarget = findNearestTarget() else currentTarget = nil end
-            task.wait(0.1)
-        end
-    end)
+    local lastLockedTarget = nil
+
+    local function isTargetValid(targetPlayer)
+        if not targetPlayer or not targetPlayer.Parent then return false end
+        local char = targetPlayer.Character
+        if not char then return false end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum or hum.Health <= 0 then return false end
+        if isSameTeam(targetPlayer) then return false end
+        if ignoredPlayers["Amigos"] and player:IsFriendsWith(targetPlayer.UserId) then return false end
+        if ignoredPlayers[targetPlayer.Name] or (targetPlayer.DisplayName and ignoredPlayers[targetPlayer.DisplayName]) then return false end
+        if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then return false end
+        if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then return false end
+        return true
+    end
 
     -- Logic for Legit Mode Target Selection
     local activeTargetPart = "Head"
-    local lastLockedTarget = nil
     local bodyParts = {
         "Head", "HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso", 
         "Left Arm", "Right Arm", "Left Leg", "Right Leg",
@@ -384,56 +406,72 @@ local AimbotCore = (function()
     end
 
     RunService.RenderStepped:Connect(function()
-        if isActive and isEnabled and currentTarget then
-            -- Check if target changed to reset part
-            if currentTarget ~= lastLockedTarget then
-                lastLockedTarget = currentTarget
-                if getgenv().LegitMode and getgenv().RandomParts then
-                    activeTargetPart = getRandomPart(currentTarget.Character)
-                else
-                    activeTargetPart = "Head"
-                end
-            end
-            
-            -- Legit Mode: Periodically switch target part (Humanization)
-            -- Only if RandomParts is enabled
-            if getgenv().LegitMode and getgenv().RandomParts and currentTarget and currentTarget.Character then
-                if not getgenv().LastLegitSwitch then getgenv().LastLegitSwitch = 0 end
-                if tick() - getgenv().LastLegitSwitch > (math.random() * 0.25 + 0.15) then
-                    activeTargetPart = getRandomPart(currentTarget.Character)
-                    getgenv().LastLegitSwitch = tick()
-                end
+        if isEnabled and isActive then
+            -- Trava firme no alvo enquanto o botão de mira estiver segurado!
+            if not isTargetValid(currentTarget) then
+                currentTarget = findNearestTarget()
             end
 
-            if currentTarget.Character then
-                -- Fallback if the specific part is missing (e.g. lost limb)
-                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
-                
-                if targetInst then
-                    local humanoid = currentTarget.Character:FindFirstChild("Humanoid")
-                    if humanoid and humanoid.Health > 0 then
-                         local currentCFrame = camera.CFrame
-                         
-                         -- SMOOTHNESS / AIM ASSIST LOGIC
-                         local smoothing = 1
-                         if getgenv().AimAssistMode then
-                             -- Use the Slider Value (1 to 20)
-                             -- 1 = Instant, 20 = Slow/Drag
-                             local smoothVal = getgenv().AimbotSmoothness or 10
-                             smoothing = 1 / smoothVal -- e.g. 1/10 = 0.1 alpha
-                         else
-                             -- Default Instnat or standard easing
-                             smoothing = getgenv().AimbotEasing or 1
-                         end
-                         
-                         camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), smoothing)
+            if currentTarget and currentTarget.Character then
+                -- Check if target changed to reset part
+                if currentTarget ~= lastLockedTarget then
+                    lastLockedTarget = currentTarget
+                    if getgenv().LegitMode and getgenv().RandomParts then
+                        activeTargetPart = getRandomPart(currentTarget.Character)
                     else
-                        currentTarget = nil
-                        lastLockedTarget = nil
+                        activeTargetPart = "Head"
+                    end
+                end
+                
+                -- Legit Mode: Periodically switch target part (Humanization)
+                if getgenv().LegitMode and getgenv().RandomParts then
+                    if not getgenv().LastLegitSwitch then getgenv().LastLegitSwitch = 0 end
+                    if tick() - getgenv().LastLegitSwitch > (math.random() * 0.25 + 0.15) then
+                        activeTargetPart = getRandomPart(currentTarget.Character)
+                        getgenv().LastLegitSwitch = tick()
+                    end
+                end
+
+                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
+                if targetInst then
+                    -- SMOOTHNESS / AIM ASSIST LOGIC
+                    local smoothing = 1
+                    if getgenv().AimAssistMode then
+                        local smoothVal = getgenv().AimbotSmoothness or 10
+                        smoothing = 1 / math.max(1, smoothVal)
+                    else
+                        smoothing = getgenv().AimbotEasing or 1
+                    end
+                    
+                    if useCursorAim then
+                        -- CURSOR AIM: Move e trava diretamente o mouse no inimigo na tela sem mexer a câmera 3D
+                        local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
+                        if onScreen then
+                            local mousePos = UserInputService:GetMouseLocation()
+                            local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
+                            local delta = target2D - mousePos
+
+                            local moveX = delta.X * smoothing
+                            local moveY = delta.Y * smoothing
+
+                            if mousemoverel then
+                                mousemoverel(moveX, moveY)
+                            elseif mousemoveabs then
+                                mousemoveabs(mousePos.X + moveX, mousePos.Y + moveY)
+                            elseif VirtualInputManager then
+                                VirtualInputManager:SendMouseMoveEvent(mousePos.X + moveX, mousePos.Y + moveY, game)
+                            end
+                        end
+                    else
+                        -- CAMERA AIM: Move a câmera 3D para mirar no inimigo
+                        local currentCFrame = camera.CFrame
+                        camera.CFrame = currentCFrame:Lerp(CFrame.new(currentCFrame.Position, targetInst.Position), smoothing)
                     end
                 end
             end
         else
+            -- Destrava quando soltar o botão
+            currentTarget = nil
             lastLockedTarget = nil
         end
     end)
