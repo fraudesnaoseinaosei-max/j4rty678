@@ -2580,6 +2580,135 @@ local MinimapCore = (function()
     return Minimap
 end)()
 
+-- [2.14] FREE SHIFT LOCK CORE (DESBLOQUEIO DE CORPO NO SHIFTLOCK)
+local FreeShiftLockCore = (function()
+    local isEnabled = false
+    local connection = nil
+    local crosshairDot = nil
+    local triggerKey = Enum.KeyCode.LeftAlt
+    local showCrosshair = true
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+
+    local function getCrosshair()
+        if not crosshairDot or not crosshairDot.Parent then
+            local sg = LocalPlayer:FindFirstChildOfClass("PlayerGui") or game:GetService("CoreGui")
+            local gui = Instance.new("ScreenGui")
+            gui.Name = "DreezyFreeShiftLockGui"
+            gui.ResetOnSpawn = false
+            gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+            local dot = Instance.new("ImageLabel")
+            dot.Name = "Crosshair"
+            dot.Size = UDim2.new(0, 16, 0, 16)
+            dot.Position = UDim2.new(0.5, -8, 0.5, -8)
+            dot.BackgroundTransparency = 1
+            dot.Image = "rbxasset://textures/MouseLockedCursor.png"
+            dot.ImageColor3 = Color3.fromRGB(255, 255, 255)
+            dot.Visible = false
+            dot.Parent = gui
+
+            pcall(function()
+                if syn and syn.protect_gui then syn.protect_gui(gui) end
+                gui.Parent = sg
+            end)
+            crosshairDot = dot
+        end
+        return crosshairDot
+    end
+
+    local function EnableFreeShiftLock()
+        if connection then connection:Disconnect() end
+        local dot = getCrosshair()
+        dot.Visible = showCrosshair
+
+        connection = RunService.RenderStepped:Connect(function()
+            if not isEnabled then return end
+            
+            local char = LocalPlayer.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    -- Aplica o deslocamento de ombro (Offset padrão 1.75 ou personalizado)
+                    local offsetVal = getgenv().FreeShiftLockOffset or 1.75
+                    hum.CameraOffset = Vector3.new(offsetVal, 0.25, 0)
+                    -- DESBLOQUEIO TOTAL DE CORPO: Força AutoRotate = true para o player virar e correr em 360° livremente
+                    hum.AutoRotate = true
+                end
+            end
+
+            -- Trava o mouse no centro da tela para movimentar a câmera diretamente com o mouse
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            end
+        end)
+    end
+
+    local function DisableFreeShiftLock()
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+        if crosshairDot then
+            crosshairDot.Visible = false
+        end
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.CameraOffset = Vector3.new(0, 0, 0)
+                hum.AutoRotate = true
+            end
+        end
+    end
+
+    -- Listener de tecla rápida para ativar/desativar em jogo
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe or getgenv().IsBindingKey then return end
+        if triggerKey and input.KeyCode == triggerKey then
+            if getgenv().ToggleFreeShiftLockUI then
+                getgenv().ToggleFreeShiftLockUI()
+            else
+                FreeShiftLockCore:SetEnabled(not isEnabled)
+            end
+        end
+    end)
+
+    local Core = {}
+    function Core:SetEnabled(state)
+        isEnabled = state
+        if getgenv then getgenv().FreeShiftLockEnabled = state end
+        if state then
+            EnableFreeShiftLock()
+        else
+            DisableFreeShiftLock()
+        end
+    end
+    function Core:IsEnabled()
+        return isEnabled
+    end
+    function Core:SetTriggerKey(key)
+        triggerKey = key
+    end
+    function Core:GetTriggerKey()
+        return triggerKey or Enum.KeyCode.LeftAlt
+    end
+    function Core:SetShowCrosshair(state)
+        showCrosshair = state
+        if crosshairDot and isEnabled then
+            crosshairDot.Visible = state
+        end
+    end
+    function Core:GetShowCrosshair()
+        return showCrosshair
+    end
+
+    return Core
+end)()
+
 -- ==========================================
 -- VOIDWARE UI LIBRARY
 -- ==========================================
@@ -6630,6 +6759,36 @@ do
         end)
         ConfigManager:Register("autoReexecuteReload", autoToggle)
     end)
+
+    -- >>> CATEGORIA: CÂMERA & SHIFT LOCK
+    local CameraGroup = Settings:Group("Câmera & Shift Lock")
+    local freeShiftLockToggle
+    freeShiftLockToggle = CameraGroup:ToggleKeybind("Shift Lock Livre (Corpo Desbloqueado)", FreeShiftLockCore:IsEnabled(), FreeShiftLockCore:GetTriggerKey(), function(v)
+        FreeShiftLockCore:SetEnabled(v)
+    end, function(k)
+        FreeShiftLockCore:SetTriggerKey(k)
+    end, function(sub)
+        local shoulderOffsetSlider = sub:Slider("Deslocamento de Ombro", 0, 40, math.floor((getgenv().FreeShiftLockOffset or 1.75) * 10), function(v)
+            getgenv().FreeShiftLockOffset = v / 10
+        end, function(v)
+            return string.format("%.1f", v / 10)
+        end)
+        ConfigManager:Register("freeShiftLockOffset", shoulderOffsetSlider)
+
+        local crosshairToggle = sub:Toggle("Mira Central (Crosshair)", FreeShiftLockCore:GetShowCrosshair(), function(v)
+            FreeShiftLockCore:SetShowCrosshair(v)
+        end)
+        ConfigManager:Register("freeShiftLockCrosshair", crosshairToggle)
+    end)
+    ConfigManager:Register("freeShiftLockEnabled", freeShiftLockToggle)
+    
+    getgenv().ToggleFreeShiftLockUI = function()
+        if freeShiftLockToggle and freeShiftLockToggle.Set and freeShiftLockToggle.Get then
+            freeShiftLockToggle.Set(not freeShiftLockToggle.Get())
+        else
+            FreeShiftLockCore:SetEnabled(not FreeShiftLockCore:IsEnabled())
+        end
+    end
 
     local ManagerGroup = Settings:Group("Gerenciamento")
 
