@@ -243,6 +243,20 @@ local AimbotCore = (function()
         return false
     end
 
+    local function getAnyVisiblePart(char)
+        if not char then return nil end
+        local head = char:FindFirstChild("Head")
+        if head and isTargetVisible(head, char) then return head end
+        local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("HumanoidRootPart")
+        if torso and isTargetVisible(torso, char) then return torso end
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") and isTargetVisible(part, char) then
+                return part
+            end
+        end
+        return nil
+    end
+
     local function isSameTeam(targetPlayer)
         if not getgenv().TeamCheck then return false end
         if player.Team and targetPlayer.Team then return player.Team == targetPlayer.Team end
@@ -457,42 +471,50 @@ local AimbotCore = (function()
         if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then return false end
         if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then return false end
         
-        -- Checagem RÍGIDA de visibilidade / parede (se foi para trás da parede, perde a mira imediatamente!)
-        local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-        if not head or not isTargetVisible(head, char) then
-            return false
+        local visPart = char:FindFirstChild(activeTargetPart) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        if not visPart or not isTargetVisible(visPart, char) then
+            local altPart = getAnyVisiblePart(char)
+            if not altPart then
+                return false
+            end
         end
 
         return true
     end
 
-    -- Logic for Legit Mode Target Selection
-    local activeTargetPart = "Head"
-    local bodyParts = {
-        "Head", "HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso", 
+    -- Logic for Legit Mode & Random Parts Target Selection (Suporte R6 e R15)
+    local candidateParts = {
+        "Head", "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart",
         "Left Arm", "Right Arm", "Left Leg", "Right Leg",
-        "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg"
+        "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand",
+        "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"
     }
 
     local function getRandomPart(char)
         if not char then return "Head" end
-        -- 40% Chance for Head, 60% Chance for Random Part
-        if math.random() <= 0.4 then 
-            return "Head" 
-        end
-
-        local possible = {}
-        for _, name in pairs(bodyParts) do
-            if char:FindFirstChild(name) then
-                table.insert(possible, name)
-            end
-        end
         
-        if #possible > 0 then
-            return possible[math.random(1, #possible)]
-        else
+        -- Se Random Parts e Modo Legit não estiverem ativos, foca na Cabeça
+        if not getgenv().RandomParts and not getgenv().LegitMode then
             return "Head"
         end
+
+        local visibleList = {}
+        for _, name in ipairs(candidateParts) do
+            local p = char:FindFirstChild(name)
+            if p and p:IsA("BasePart") and isTargetVisible(p, char) then
+                table.insert(visibleList, name)
+            end
+        end
+
+        if #visibleList > 0 then
+            -- 35% de chance para Head se visível, senão sorteia entre os membros visíveis
+            if char:FindFirstChild("Head") and isTargetVisible(char.Head, char) and math.random() <= 0.35 then
+                return "Head"
+            end
+            return visibleList[math.random(1, #visibleList)]
+        end
+
+        return "Head"
     end
 
     RunService.RenderStepped:Connect(function()
@@ -504,18 +526,14 @@ local AimbotCore = (function()
             end
 
             if currentTarget and currentTarget.Character and isTargetValid(currentTarget) then
-                -- Check if target changed to reset part
-                if currentTarget ~= lastLockedTarget then
+                -- Ao selecionar ou travar novo alvo, sorteia a parte inicial
+                if currentTarget ~= lastLockedTarget or not activeTargetPart then
                     lastLockedTarget = currentTarget
-                    if getgenv().LegitMode and getgenv().RandomParts then
-                        activeTargetPart = getRandomPart(currentTarget.Character)
-                    else
-                        activeTargetPart = "Head"
-                    end
+                    activeTargetPart = getRandomPart(currentTarget.Character)
                 end
                 
-                -- Legit Mode: Periodically switch target part (Humanization)
-                if getgenv().LegitMode and getgenv().RandomParts then
+                -- Humanização / Random Parts: Troca periodicamente a parte do corpo mirada (Funciona no Cursor Aim e Camera Aim!)
+                if (getgenv().RandomParts or getgenv().LegitMode) and currentTarget and currentTarget.Character then
                     if not getgenv().LastLegitSwitch then getgenv().LastLegitSwitch = 0 end
                     if tick() - getgenv().LastLegitSwitch > (math.random() * 0.25 + 0.15) then
                         activeTargetPart = getRandomPart(currentTarget.Character)
@@ -523,9 +541,9 @@ local AimbotCore = (function()
                     end
                 end
 
-                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") 
+                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") or currentTarget.Character:FindFirstChild("HumanoidRootPart")
                 if targetInst and isTargetVisible(targetInst, currentTarget.Character) then
-                    -- SMOOTHNESS / AIM ASSIST LOGIC
+                    -- SMOOTHNESS / AIM ASSIST LOGIC (Aplica em ambos os modos)
                     local smoothing = 1
                     if getgenv().AimAssistMode then
                         local smoothVal = getgenv().AimbotSmoothness or 10
@@ -535,7 +553,7 @@ local AimbotCore = (function()
                     end
                     
                     if useCursorAim then
-                        -- CURSOR AIM: Move o cursor para o inimigo sem mexer na rotação da câmera (a câmera segue o player normalmente)
+                        -- CURSOR AIM: Aplica TODAS as configurações (Random Parts, Smoothness, Assist) diretamente no Cursor do Mouse!
                         local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
                         if onScreen then
                             local mousePos = UserInputService:GetMouseLocation()
@@ -554,15 +572,20 @@ local AimbotCore = (function()
                             end
                         end
                     else
-                        -- CAMERA AIM: Move a câmera suavemente para olhar no inimigo
+                        -- CAMERA AIM: Move a câmera suavemente para a parte do corpo selecionada
                         local currentCFrame = camera.CFrame
                         local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
                         camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
                     end
                 else
-                    -- Se a parte do corpo não está visível, solta a mira
-                    currentTarget = nil
-                    lastLockedTarget = nil
+                    -- Se a parte do corpo não está visível, tenta pegar outra parte visível no char
+                    local fallbackPart = getAnyVisiblePart(currentTarget.Character)
+                    if fallbackPart then
+                        activeTargetPart = fallbackPart.Name
+                    else
+                        currentTarget = nil
+                        lastLockedTarget = nil
+                    end
                 end
             else
                 currentTarget = nil
