@@ -331,39 +331,11 @@ local AimbotCore = (function()
         return nearestTarget
     end
 
+    local aimKey = Enum.UserInputType.MouseButton2 -- Padrão oficial: Botão Direito (M2)
+
     local ContextActionService = game:GetService("ContextActionService")
     local function BlockCameraRightClick()
         return Enum.ContextActionResult.Sink
-    end
-
-    local isCameraFrozen = false
-    local frozenCFrame = nil
-
-    local function FreezeCamera()
-        if not isCameraFrozen then
-            isCameraFrozen = true
-            frozenCFrame = camera.CFrame
-            camera.CameraType = Enum.CameraType.Scriptable
-            ContextActionService:BindActionAtPriority(
-                "DreezyFreezeCamera", 
-                BlockCameraRightClick, 
-                false, 
-                Enum.ContextActionPriority.High.Value + 2000, 
-                Enum.UserInputType.MouseButton2
-            )
-        end
-        if frozenCFrame then
-            camera.CFrame = frozenCFrame
-        end
-    end
-
-    local function UnfreezeCamera()
-        if isCameraFrozen then
-            isCameraFrozen = false
-            frozenCFrame = nil
-            camera.CameraType = Enum.CameraType.Custom
-            ContextActionService:UnbindAction("DreezyFreezeCamera")
-        end
     end
 
     function AimbotCore:SetEnabled(enabled)
@@ -372,13 +344,12 @@ local AimbotCore = (function()
             isActive = false 
             currentTarget = nil
             lastLockedTarget = nil
-            UnfreezeCamera()
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
         updateFOVCircle()
     end
     function AimbotCore:SetTriggerKey(k)
-        aimKey = k
+        aimKey = k or Enum.UserInputType.MouseButton2
         if typeof(k) == "EnumItem" then
             getgenv().AimbotInput = k.Name
         elseif typeof(k) == "string" then
@@ -386,7 +357,7 @@ local AimbotCore = (function()
         end
     end
     function AimbotCore:GetTriggerKey()
-        return aimKey
+        return aimKey or Enum.UserInputType.MouseButton2
     end
     function AimbotCore:SetCursorAim(enabled)
         useCursorAim = enabled
@@ -449,7 +420,6 @@ local AimbotCore = (function()
     local function HandleAimEnd(input)
         if IsInputMatch(input, aimKey) then
             isActive = false
-            UnfreezeCamera()
             ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
     end
@@ -565,10 +535,7 @@ local AimbotCore = (function()
                     end
                     
                     if useCursorAim then
-                        -- CONGELA A CÂMERA TOTALMENTE ENQUANTO O CURSOR ESTIVER GRUDADO NO INIMIGO
-                        FreezeCamera()
-
-                        -- CURSOR AIM: Move e trava diretamente o mouse no inimigo na tela sem mexer a câmera 3D
+                        -- CURSOR AIM: Move o cursor para o inimigo sem mexer na rotação da câmera (a câmera segue o player normalmente)
                         local viewportPoint, onScreen = camera:WorldToViewportPoint(targetInst.Position)
                         if onScreen then
                             local mousePos = UserInputService:GetMouseLocation()
@@ -587,8 +554,7 @@ local AimbotCore = (function()
                             end
                         end
                     else
-                        UnfreezeCamera()
-                        -- CAMERA AIM: Move a câmera 3D suavemente usando lookAt sem rotação descontrolada
+                        -- CAMERA AIM: Move a câmera suavemente para olhar no inimigo
                         local currentCFrame = camera.CFrame
                         local lookCFrame = CFrame.lookAt(currentCFrame.Position, targetInst.Position)
                         camera.CFrame = currentCFrame:Lerp(lookCFrame, smoothing)
@@ -597,18 +563,16 @@ local AimbotCore = (function()
                     -- Se a parte do corpo não está visível, solta a mira
                     currentTarget = nil
                     lastLockedTarget = nil
-                    UnfreezeCamera()
                 end
             else
                 currentTarget = nil
                 lastLockedTarget = nil
-                UnfreezeCamera()
             end
         else
             -- Destrava quando soltar o botão
             currentTarget = nil
             lastLockedTarget = nil
-            UnfreezeCamera()
+            ContextActionService:UnbindAction("DreezyBlockCamDrag")
         end
     end)
 
@@ -5839,11 +5803,46 @@ do
         return list
     end
 
-    local aimbotToggle = AimbotGroup:ToggleKeybind("Ativar Aimbot", AimbotCore:IsEnabled(), AimbotCore:GetTriggerKey(), function(v)
+    local aimbotToggle
+    aimbotToggle = AimbotGroup:ToggleKeybind("Ativar Aimbot", AimbotCore:IsEnabled(), Enum.UserInputType.MouseButton2, function(v)
         AimbotCore:SetEnabled(v)
     end, function(k)
         AimbotCore:SetTriggerKey(k)
     end, function(sub)
+        local keyOptions = {
+            "M2 (Botão Direito)",
+            "M1 (Botão Esquerdo)",
+            "M3 (Scroll / Meio)",
+            "M4 (Lateral Voltar)",
+            "M5 (Lateral Avançar)",
+            "E", "Q", "F", "C", "V", "X", "Z", "LeftShift", "LeftControl", "LeftAlt"
+        }
+        local keyMap = {
+            ["M2 (Botão Direito)"] = Enum.UserInputType.MouseButton2,
+            ["M1 (Botão Esquerdo)"] = Enum.UserInputType.MouseButton1,
+            ["M3 (Scroll / Meio)"] = Enum.UserInputType.MouseButton3,
+            ["M4 (Lateral Voltar)"] = "M4",
+            ["M5 (Lateral Avançar)"] = "M5",
+            ["E"] = Enum.KeyCode.E,
+            ["Q"] = Enum.KeyCode.Q,
+            ["F"] = Enum.KeyCode.F,
+            ["C"] = Enum.KeyCode.C,
+            ["V"] = Enum.KeyCode.V,
+            ["X"] = Enum.KeyCode.X,
+            ["Z"] = Enum.KeyCode.Z,
+            ["LeftShift"] = Enum.KeyCode.LeftShift,
+            ["LeftControl"] = Enum.KeyCode.LeftControl,
+            ["LeftAlt"] = Enum.KeyCode.LeftAlt,
+        }
+
+        sub:Dropdown("Tecla de Disparo", keyOptions, "M2 (Botão Direito)", function(selected)
+            local targetKey = keyMap[selected] or Enum.UserInputType.MouseButton2
+            AimbotCore:SetTriggerKey(targetKey)
+            if aimbotToggle and aimbotToggle.SetKey then
+                aimbotToggle.SetKey(targetKey)
+            end
+        end)
+
         local teamCheckToggle = sub:Toggle("Ignorar Aliados", getgenv().TeamCheck, function(v)
             getgenv().TeamCheck = v
         end)
