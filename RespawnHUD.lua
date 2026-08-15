@@ -409,6 +409,9 @@ local AimbotCore = (function()
     function AimbotCore:GetFOV() return getgenv().AimbotFOV or 100 end
     function AimbotCore:IsEnabled() return isEnabled end
 
+    local hasIsKeyDown = (typeof(iskeydown) == "function") or (typeof(iskeypressed) == "function")
+    local checkKeyFunc = iskeydown or iskeypressed
+
     local function IsInputMatch(input, targetKey)
         if typeof(targetKey) == "EnumItem" then
             if targetKey.EnumType == Enum.UserInputType then
@@ -424,12 +427,10 @@ local AimbotCore = (function()
                 return input.UserInputType == Enum.UserInputType.MouseButton1
             elseif strKey == "middleclick" or strKey == "mousebutton3" or strKey == "m3" then
                 return input.UserInputType == Enum.UserInputType.MouseButton3
-            elseif strKey == "mousebutton4" or strKey == "m4" or strKey == "side1" then
-                return input.UserInputType == Enum.UserInputType.MouseButton4
-            elseif strKey == "mousebutton5" or strKey == "m5" or strKey == "side2" then
-                return input.UserInputType == Enum.UserInputType.MouseButton5
             else
-                return input.KeyCode.Name:lower() == strKey
+                if input.KeyCode and input.KeyCode.Name then
+                    return input.KeyCode.Name:lower() == strKey
+                end
             end
         end
         return false
@@ -455,6 +456,21 @@ local AimbotCore = (function()
 
     UserInputService.InputBegan:Connect(HandleAimStart)
     UserInputService.InputEnded:Connect(HandleAimEnd)
+
+    local function CheckAimbotTriggerActive()
+        if not isEnabled then return false end
+        if typeof(aimKey) == "string" and hasIsKeyDown then
+            local strKey = aimKey:lower()
+            if strKey == "m4" or strKey == "mousebutton4" or strKey == "side1" then
+                return checkKeyFunc(0x05)
+            elseif strKey == "m5" or strKey == "mousebutton5" or strKey == "side2" then
+                return checkKeyFunc(0x06)
+            elseif strKey == "m3" or strKey == "mousebutton3" then
+                return checkKeyFunc(0x04)
+            end
+        end
+        return isActive
+    end
 
     local currentTarget = nil
     local lastLockedTarget = nil
@@ -510,7 +526,8 @@ local AimbotCore = (function()
     end
 
     RunService.RenderStepped:Connect(function()
-        if isEnabled and isActive then
+        local currentlyActive = CheckAimbotTriggerActive()
+        if isEnabled and currentlyActive then
             -- Se não tiver alvo válido ou se o alvo atual foi para trás de uma parede / perdeu a visão, busca outro visível
             if not isTargetValid(currentTarget) then
                 currentTarget = findNearestTarget()
@@ -4848,10 +4865,6 @@ function VoidLib:CreateWindow()
                                 return "M2"
                             elseif key == Enum.UserInputType.MouseButton3 then
                                 return "M3"
-                            elseif key == Enum.UserInputType.MouseButton4 then
-                                return "M4"
-                            elseif key == Enum.UserInputType.MouseButton5 then
-                                return "M5"
                             else
                                 return key.Name
                             end
@@ -4905,9 +4918,7 @@ function VoidLib:CreateWindow()
                             conn:Disconnect()
                         elseif input.UserInputType == Enum.UserInputType.MouseButton1 
                             or input.UserInputType == Enum.UserInputType.MouseButton2 
-                            or input.UserInputType == Enum.UserInputType.MouseButton3
-                            or input.UserInputType == Enum.UserInputType.MouseButton4
-                            or input.UserInputType == Enum.UserInputType.MouseButton5 then
+                            or input.UserInputType == Enum.UserInputType.MouseButton3 then
                             currentKey = input.UserInputType
                             KeyBtn.Text = FormatKeyName(currentKey)
                             pcall(keybindCallback, currentKey)
@@ -4916,6 +4927,33 @@ function VoidLib:CreateWindow()
                             conn:Disconnect()
                         end
                     end)
+
+                    local hasKeyCheck = (typeof(iskeydown) == "function") or (typeof(iskeypressed) == "function")
+                    local keyCheckFunc = iskeydown or iskeypressed
+                    if hasKeyCheck then
+                        task.spawn(function()
+                            while listening do
+                                if keyCheckFunc(0x05) then
+                                    currentKey = "M4"
+                                    KeyBtn.Text = "M4"
+                                    pcall(keybindCallback, "M4")
+                                    listening = false
+                                    KeyBtn.TextColor3 = Themes.Text
+                                    if conn then conn:Disconnect() end
+                                    break
+                                elseif keyCheckFunc(0x06) then
+                                    currentKey = "M5"
+                                    KeyBtn.Text = "M5"
+                                    pcall(keybindCallback, "M5")
+                                    listening = false
+                                    KeyBtn.TextColor3 = Themes.Text
+                                    if conn then conn:Disconnect() end
+                                    break
+                                end
+                                task.wait(0.03)
+                            end
+                        end)
+                    end
                 end)
                 
                 local TBtn = Instance.new("TextButton")
@@ -5251,8 +5289,6 @@ function VoidLib:CreateWindow()
                             if key == Enum.UserInputType.MouseButton1 then return "M1"
                             elseif key == Enum.UserInputType.MouseButton2 then return "M2"
                             elseif key == Enum.UserInputType.MouseButton3 then return "M3"
-                            elseif key == Enum.UserInputType.MouseButton4 then return "M4"
-                            elseif key == Enum.UserInputType.MouseButton5 then return "M5"
                             else return key.Name end
                         end
                     elseif typeof(key) == "string" then
@@ -5301,9 +5337,7 @@ function VoidLib:CreateWindow()
                             conn:Disconnect()
                         elseif input.UserInputType == Enum.UserInputType.MouseButton1 
                             or input.UserInputType == Enum.UserInputType.MouseButton2 
-                            or input.UserInputType == Enum.UserInputType.MouseButton3
-                            or input.UserInputType == Enum.UserInputType.MouseButton4
-                            or input.UserInputType == Enum.UserInputType.MouseButton5 then
+                            or input.UserInputType == Enum.UserInputType.MouseButton3 then
                             currentKey = input.UserInputType
                             BindBtn.Text = FormatKeyName(currentKey)
                             BindBtn.TextColor3 = Themes.Text
@@ -5312,6 +5346,33 @@ function VoidLib:CreateWindow()
                             pcall(callback, currentKey)
                         end
                     end)
+
+                    local hasKeyCheck = (typeof(iskeydown) == "function") or (typeof(iskeypressed) == "function")
+                    local keyCheckFunc = iskeydown or iskeypressed
+                    if hasKeyCheck then
+                        task.spawn(function()
+                            while getgenv().IsBindingKey do
+                                if keyCheckFunc(0x05) then
+                                    currentKey = "M4"
+                                    BindBtn.Text = "M4"
+                                    BindBtn.TextColor3 = Themes.Text
+                                    getgenv().IsBindingKey = false
+                                    if conn then conn:Disconnect() end
+                                    pcall(callback, "M4")
+                                    break
+                                elseif keyCheckFunc(0x06) then
+                                    currentKey = "M5"
+                                    BindBtn.Text = "M5"
+                                    BindBtn.TextColor3 = Themes.Text
+                                    getgenv().IsBindingKey = false
+                                    if conn then conn:Disconnect() end
+                                    pcall(callback, "M5")
+                                    break
+                                end
+                                task.wait(0.03)
+                            end
+                        end)
+                    end
                 end)
                 return BFrame
             end
