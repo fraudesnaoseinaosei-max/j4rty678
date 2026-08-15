@@ -458,12 +458,13 @@ local AimbotCore = (function()
 
     local currentTarget = nil
     local lastLockedTarget = nil
+    local activeTargetPart = "Head"
 
     local function isTargetValid(targetPlayer)
         if not targetPlayer or not targetPlayer.Parent then return false end
         local char = targetPlayer.Character
         if not char then return false end
-        local hum = char:FindFirstChild("Humanoid")
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:FindFirstChild("Humanoid")
         if not hum or hum.Health <= 0 then return false end
         if isSameTeam(targetPlayer) then return false end
         if ignoredPlayers["Amigos"] and player:IsFriendsWith(targetPlayer.UserId) then return false end
@@ -471,7 +472,8 @@ local AimbotCore = (function()
         if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then return false end
         if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then return false end
         
-        local visPart = char:FindFirstChild(activeTargetPart) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        local checkPartName = (typeof(activeTargetPart) == "string" and activeTargetPart) or "Head"
+        local visPart = char:FindFirstChild(checkPartName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
         if not visPart or not isTargetVisible(visPart, char) then
             local altPart = getAnyVisiblePart(char)
             if not altPart then
@@ -541,7 +543,8 @@ local AimbotCore = (function()
                     end
                 end
 
-                local targetInst = currentTarget.Character:FindFirstChild(activeTargetPart) or currentTarget.Character:FindFirstChild("Head") or currentTarget.Character:FindFirstChild("HumanoidRootPart")
+                local targetPartName = (typeof(activeTargetPart) == "string" and activeTargetPart) or "Head"
+                local targetInst = currentTarget.Character:FindFirstChild(targetPartName) or currentTarget.Character:FindFirstChild("Head") or currentTarget.Character:FindFirstChild("HumanoidRootPart")
                 if targetInst and isTargetVisible(targetInst, currentTarget.Character) then
                     -- SMOOTHNESS / AIM ASSIST LOGIC (Aplica em ambos os modos)
                     local smoothing = 1
