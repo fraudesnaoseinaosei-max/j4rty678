@@ -192,86 +192,80 @@ local TeamManager = (function()
     local Teams = game:GetService("Teams")
     local LocalPlayer = Players.LocalPlayer
 
+    -- Valida se o time do jogador é uma instância real e ativa dentro do serviço Teams
+    local function GetValidTeam(p)
+        if not p then return nil end
+        if p.Neutral then return nil end
+        local t = p.Team
+        if t and typeof(t) == "Instance" and t:IsA("Team") and t.Parent == Teams then
+            return t
+        end
+        return nil
+    end
+
+    -- Detecta se o jogo está em modo FFA / Todos contra Todos (pasta Teams vazia ou com <= 1 time)
     local function IsFFAMode()
         local success, allTeams = pcall(function() return Teams:GetTeams() end)
         if not success or not allTeams or #allTeams <= 1 then
             return true
         end
 
-        local activeTeamsWithPlayers = 0
+        local activeTeamsCount = 0
         for _, t in ipairs(allTeams) do
-            local pList = t:GetPlayers()
-            if #pList > 0 then
-                activeTeamsWithPlayers = activeTeamsWithPlayers + 1
+            if t.Parent == Teams then
+                activeTeamsCount = activeTeamsCount + 1
             end
         end
 
-        if activeTeamsWithPlayers <= 1 then
-            return true
-        end
-
-        local hasTeams = false
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p.Team ~= nil and not p.Neutral then
-                hasTeams = true
-                break
-            end
-        end
-        if not hasTeams then
-            return true
-        end
-
-        return false
-    end
-
-    local function GetCurrentTeam(target)
-        if not target then return nil end
-        if target.Neutral then return nil end
-        return target.Team
+        return activeTeamsCount <= 1
     end
 
     local function IsAlly(targetPlayer)
         if not targetPlayer or targetPlayer == LocalPlayer then return true end
         
-        -- Se for modo Solo / FFA / 1 time ativo: todos os outros são alvos
+        -- Se a pasta Teams foi deletada ou só tem 1 time: é FFA (ninguém é aliado exceto você!)
         if IsFFAMode() then
             return false
         end
 
-        local myTeam = GetCurrentTeam(LocalPlayer)
-        local targetTeam = GetCurrentTeam(targetPlayer)
+        local myTeam = GetValidTeam(LocalPlayer)
+        local targetTeam = GetValidTeam(targetPlayer)
 
+        -- Se ambos têm times ativos e válidos dentro de Teams
         if myTeam and targetTeam then
             return myTeam == targetTeam
         end
 
-        -- Checagem secundária por TeamColor
-        if LocalPlayer.TeamColor and targetPlayer.TeamColor and LocalPlayer.TeamColor == targetPlayer.TeamColor then
-            if not LocalPlayer.Neutral and not targetPlayer.Neutral then
-                return true
-            end
-        end
-
+        -- Se algum jogador não tem time dentro de Teams, é neutro/inimigo
         return false
     end
 
     local function GetPlayerColor(targetPlayer)
         if not targetPlayer then return Color3.fromRGB(255, 255, 255) end
 
-        -- 1. Cor REAL e NATIVA do time do jogador (lida a cada frame em tempo real)
-        if targetPlayer.TeamColor and targetPlayer.TeamColor.Color then
-            return targetPlayer.TeamColor.Color
-        end
-        
-        if targetPlayer.Team and targetPlayer.Team.TeamColor and targetPlayer.Team.TeamColor.Color then
-            return targetPlayer.Team.TeamColor.Color
+        -- 1. Se estiver em modo Solo / FFA (pasta Teams vazia/deletada):
+        -- Ignora cores antigas residuais que ficaram na memória e aplica cor limpa padrão para todos
+        if IsFFAMode() then
+            return Color3.fromRGB(255, 255, 255)
         end
 
-        -- 2. Fallback para jogos sem time ou jogadores neutros
+        -- 2. Se estiver em modo de Times (Teams possui 2 ou mais times):
+        local validTeam = GetValidTeam(targetPlayer)
+        if validTeam then
+            if validTeam.TeamColor and validTeam.TeamColor.Color then
+                return validTeam.TeamColor.Color
+            end
+            if targetPlayer.TeamColor and targetPlayer.TeamColor.Color then
+                return targetPlayer.TeamColor.Color
+            end
+        end
+
+        -- 3. Fallback para jogadores sem time ativo
         return Color3.fromRGB(255, 255, 255)
     end
 
     return {
+        GetValidTeam = GetValidTeam,
         IsFFAMode = IsFFAMode,
         IsAlly = IsAlly,
         IsEnemy = function(p) return not IsAlly(p) end,
