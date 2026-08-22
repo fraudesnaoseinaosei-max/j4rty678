@@ -192,19 +192,12 @@ local TeamManager = (function()
     local Teams = game:GetService("Teams")
     local LocalPlayer = Players.LocalPlayer
 
-    if getgenv().ESPDifferentiateTeams == nil then getgenv().ESPDifferentiateTeams = true end
-    if getgenv().ESPAutoFFA == nil then getgenv().ESPAutoFFA = true end
-
     local function IsFFAMode()
-        if getgenv().ESPAutoFFA == false then return false end
-
-        -- 1. Se não houver serviço Teams ou houver <= 1 time configurado no jogo
         local success, allTeams = pcall(function() return Teams:GetTeams() end)
         if not success or not allTeams or #allTeams <= 1 then
             return true
         end
 
-        -- 2. Contar quantos times possuem jogadores reais ativos
         local activeTeamsWithPlayers = 0
         for _, t in ipairs(allTeams) do
             local pList = t:GetPlayers()
@@ -213,12 +206,10 @@ local TeamManager = (function()
             end
         end
 
-        -- Se todos os jogadores do servidor estão concentrados em apenas 1 único time (ex: "Lobby" ou "Jogando"), é FFA!
         if activeTeamsWithPlayers <= 1 then
             return true
         end
 
-        -- 3. Se todos os jogadores estiverem neutros (Neutral = true ou Team = nil)
         local hasTeams = false
         for _, p in ipairs(Players:GetPlayers()) do
             if p.Team ~= nil and not p.Neutral then
@@ -242,7 +233,7 @@ local TeamManager = (function()
     local function IsAlly(targetPlayer)
         if not targetPlayer or targetPlayer == LocalPlayer then return true end
         
-        -- Se for modo Solo / FFA / 1 time ativo: Todos os outros são inimigos!
+        -- Se for modo Solo / FFA / 1 time ativo: todos os outros são alvos
         if IsFFAMode() then
             return false
         end
@@ -267,31 +258,17 @@ local TeamManager = (function()
     local function GetPlayerColor(targetPlayer)
         if not targetPlayer then return Color3.fromRGB(255, 255, 255) end
 
-        -- Se for modo Solo / FFA: Todos os outros são Inimigos (Vermelho vibrante)
-        if IsFFAMode() then
-            return Color3.fromRGB(255, 50, 50)
+        -- 1. Cor REAL e NATIVA do time do jogador (lida a cada frame em tempo real)
+        if targetPlayer.TeamColor and targetPlayer.TeamColor.Color then
+            return targetPlayer.TeamColor.Color
+        end
+        
+        if targetPlayer.Team and targetPlayer.Team.TeamColor and targetPlayer.Team.TeamColor.Color then
+            return targetPlayer.Team.TeamColor.Color
         end
 
-        local isAlly = IsAlly(targetPlayer)
-        if isAlly then
-            -- Aliado: Verde brilhante ou Cor do time aliado
-            if getgenv().ESPDifferentiateTeams then
-                return Color3.fromRGB(0, 255, 120) -- Verde Aliado
-            else
-                if targetPlayer.TeamColor then return targetPlayer.TeamColor.Color end
-                if targetPlayer.Team and targetPlayer.Team.TeamColor then return targetPlayer.Team.TeamColor.Color end
-                return Color3.fromRGB(0, 255, 120)
-            end
-        else
-            -- Inimigo: Vermelho brilhante ou Cor do time inimigo
-            if getgenv().ESPDifferentiateTeams then
-                return Color3.fromRGB(255, 50, 50) -- Vermelho Inimigo
-            else
-                if targetPlayer.TeamColor then return targetPlayer.TeamColor.Color end
-                if targetPlayer.Team and targetPlayer.Team.TeamColor then return targetPlayer.Team.TeamColor.Color end
-                return Color3.fromRGB(255, 50, 50)
-            end
-        end
+        -- 2. Fallback para jogos sem time ou jogadores neutros
+        return Color3.fromRGB(255, 255, 255)
     end
 
     return {
@@ -6577,16 +6554,6 @@ do
             getgenv().ESPInventory = v
         end)
         ConfigManager:Register("espInventory", espInventoryToggle)
-
-        local espDiffToggle = sub:Toggle("Diferenciar Aliados / Inimigos", (getgenv().ESPDifferentiateTeams == nil and true or getgenv().ESPDifferentiateTeams), function(v)
-            getgenv().ESPDifferentiateTeams = v
-        end)
-        ConfigManager:Register("espDifferentiateTeams", espDiffToggle)
-
-        local espAutoFFAToggle = sub:Toggle("Auto-Detectar Modo Solo / FFA", (getgenv().ESPAutoFFA == nil and true or getgenv().ESPAutoFFA), function(v)
-            getgenv().ESPAutoFFA = v
-        end)
-        ConfigManager:Register("espAutoFFA", espAutoFFAToggle)
     end)
     ConfigManager:Register("espEnabled", espToggle)
 
