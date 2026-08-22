@@ -63,39 +63,69 @@ end
 -- LOGIC
 -- ============================================
 
+-- Função para obter time e cor reais do jogador dinamicamente
+local function GetPlayerActualTeam(p)
+    if not p then return nil, nil end
+    if p.Team and p.Team:IsA("Team") then
+        local tColor = p.Team.TeamColor and p.Team.TeamColor.Color or (p.TeamColor and p.TeamColor.Color)
+        return p.Team.Name, tColor
+    end
+    local attrTeam = p:GetAttribute("Team") or p:GetAttribute("team") or p:GetAttribute("Faction") or p:GetAttribute("Role")
+    if attrTeam then return tostring(attrTeam), nil end
+    local valTeam = p:FindFirstChild("Team") or p:FindFirstChild("TeamName") or p:FindFirstChild("Faction")
+    if valTeam and (valTeam:IsA("StringValue") or valTeam:IsA("ObjectValue")) and valTeam.Value then
+        local valStr = typeof(valTeam.Value) == "Instance" and valTeam.Value.Name or tostring(valTeam.Value)
+        return valStr, nil
+    end
+    local leaderstats = p:FindFirstChild("leaderstats")
+    if leaderstats then
+        local lTeam = leaderstats:FindFirstChild("Team") or leaderstats:FindFirstChild("Role")
+        if lTeam and lTeam.Value then return tostring(lTeam.Value), nil end
+    end
+    if p.TeamColor and p.TeamColor.Name ~= "Medium stone grey" and p.TeamColor.Name ~= "White" then
+        return p.TeamColor.Name, p.TeamColor.Color
+    end
+    return nil, nil
+end
+
+local function IsGameFFAOrSolo()
+    local teams = game:GetService("Teams"):GetTeams()
+    if #teams < 2 then return true end
+    if LocalPlayer.Neutral then return true end
+    return false
+end
+
+local function IsAlly(targetPlayer)
+    if not targetPlayer or targetPlayer == LocalPlayer then return true end
+    if LocalPlayer.Neutral or targetPlayer.Neutral then return false end
+    if IsGameFFAOrSolo() then return false end
+    local myTeamName, myTeamColor = GetPlayerActualTeam(LocalPlayer)
+    local targetTeamName, targetTeamColor = GetPlayerActualTeam(targetPlayer)
+    if myTeamName and targetTeamName then return myTeamName == targetTeamName end
+    if myTeamColor and targetTeamColor then return myTeamColor == targetTeamColor end
+    return false
+end
+
 -- Função para obter cor do time (Robust Team Color)
 local function GetTeamColor(player)
-    -- 1. Tentar pegar diretamente do TeamColor da instância Player
-    if player.TeamColor then
-        return player.TeamColor.Color
+    local isAlly = IsAlly(player)
+    local colorMode = getgenv().ESPColorMode or "Auto"
+    if colorMode == "AllyEnemy" then
+        return isAlly and Color3.fromRGB(50, 255, 120) or Color3.fromRGB(255, 60, 60)
     end
-
-    -- 2. Tentar via Serviço Teams (Padrão Roblox)
-    if player.Team then
-        if player.Team.TeamColor then
-             return player.Team.TeamColor.Color
-        end
+    local teamName, teamCol = GetPlayerActualTeam(player)
+    if teamCol then return teamCol end
+    if teamName then
+        local hash = 0
+        for i = 1, #teamName do hash = hash + string.byte(teamName, i) end
+        return Color3.fromHSV((hash % 100) / 100, 0.85, 1)
     end
-
-    -- 3. Tentar inferir via SpawnLocation (Opcional, mas pesado) ou Atributos
-    -- Fallback: Cor única baseada no nome (Hash) para jogos FFA sem times definidos
-    -- Isso garante que cada jogador tenha uma cor consistente, mas diferente
-    -- local hash = 0
-    -- for i = 1, #player.Name do hash = hash + string.byte(player.Name, i) end
-    -- return Color3.fromHSV((hash % 100)/100, 0.8, 1) -- Cor aleatória consistente
-    
-    -- Por enquanto, retornamos Branco se não tiver time, ou Vermelho se for inimigo (FFA)
-    return Color3.fromRGB(255, 255, 255)
+    return isAlly and Color3.fromRGB(50, 255, 120) or Color3.fromRGB(255, 75, 75)
 end
 
 -- Função auxiliar para verificar inimigo
 local function IsEnemy(targetPlayer)
-    -- Se FFA (Free For All) ou sem time, todos são inimigos
-    if not LocalPlayer.Team then return true end
-    if not targetPlayer.Team then return true end
-    
-    -- Se times forem diferentes, é inimigo
-    return LocalPlayer.Team ~= targetPlayer.Team
+    return not IsAlly(targetPlayer)
 end
 
 local function CreateDrawings(playerName)

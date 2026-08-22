@@ -257,10 +257,83 @@ local AimbotCore = (function()
         return nil
     end
 
+    -- ============================================
+    -- GLOBAL DYNAMIC TEAM DETECTOR (ROBUST & REAL-TIME)
+    -- ============================================
+    local function GetPlayerActualTeam(p)
+        if not p then return nil, nil end
+        -- 1. Objeto Team nativo da Roblox
+        if p.Team and p.Team:IsA("Team") then
+            local tColor = p.Team.TeamColor and p.Team.TeamColor.Color or (p.TeamColor and p.TeamColor.Color)
+            return p.Team.Name, tColor
+        end
+        -- 2. Atributos customizados do Player
+        local attrTeam = p:GetAttribute("Team") or p:GetAttribute("team") or p:GetAttribute("Faction") or p:GetAttribute("Role")
+        if attrTeam then
+            return tostring(attrTeam), nil
+        end
+        -- 3. ValueObjects dentro do Player (Team, TeamName, Faction, etc.)
+        local valTeam = p:FindFirstChild("Team") or p:FindFirstChild("TeamName") or p:FindFirstChild("Faction")
+        if valTeam and (valTeam:IsA("StringValue") or valTeam:IsA("ObjectValue")) then
+            if valTeam.Value then
+                local valStr = typeof(valTeam.Value) == "Instance" and valTeam.Value.Name or tostring(valTeam.Value)
+                return valStr, nil
+            end
+        end
+        -- 4. Leaderstats Team
+        local leaderstats = p:FindFirstChild("leaderstats")
+        if leaderstats then
+            local lTeam = leaderstats:FindFirstChild("Team") or leaderstats:FindFirstChild("Role")
+            if lTeam and lTeam.Value then
+                return tostring(lTeam.Value), nil
+            end
+        end
+        -- 5. TeamColor nativo (verificando se não é a cor cinza neutra padrão)
+        if p.TeamColor and p.TeamColor.Name ~= "Medium stone grey" and p.TeamColor.Name ~= "White" then
+            return p.TeamColor.Name, p.TeamColor.Color
+        end
+        return nil, nil
+    end
+
+    local function IsGameFFAOrSolo()
+        local teams = Teams:GetTeams()
+        if #teams < 2 then
+            return true
+        end
+        if player.Neutral then
+            return true
+        end
+        return false
+    end
+
     local function isSameTeam(targetPlayer)
+        if not targetPlayer then return false end
+        if targetPlayer == player then return true end
+
+        -- Se o TeamCheck estiver desligado, não considera aliado
         if not getgenv().TeamCheck then return false end
-        if player.Team and targetPlayer.Team then return player.Team == targetPlayer.Team end
-        if player.TeamColor and targetPlayer.TeamColor then return player.TeamColor == targetPlayer.TeamColor end
+
+        -- Se qualquer um dos dois for Neutral, são inimigos (Solo / FFA)
+        if player.Neutral or targetPlayer.Neutral then
+            return false
+        end
+
+        -- Se o jogo só tem 1 time ou nenhum time (Solo / FFA), todos são inimigos
+        if IsGameFFAOrSolo() then
+            return false
+        end
+
+        local myTeamName, myTeamColor = GetPlayerActualTeam(player)
+        local targetTeamName, targetTeamColor = GetPlayerActualTeam(targetPlayer)
+
+        if myTeamName and targetTeamName then
+            return myTeamName == targetTeamName
+        end
+
+        if myTeamColor and targetTeamColor then
+            return myTeamColor == targetTeamColor
+        end
+
         return false
     end
 
@@ -644,14 +717,18 @@ local KillAuraCore = (function()
     end
 
     local function isSameTeam(targetPlayer)
-        -- TeamCheck only applies to "Todos" mode usually, or if explicitly requested.
-        -- User asked: "Amigos" -> Target Friends. "Specific" -> Target Specific.
-        -- So for "Todos", we respect TeamCheck.
         if targetMode ~= "Todos" then return false end
-        
         if not getgenv().TeamCheck then return false end
-        if player.Team and targetPlayer.Team then return player.Team == targetPlayer.Team end
-        if player.TeamColor and targetPlayer.TeamColor then return player.TeamColor == targetPlayer.TeamColor end
+        if not targetPlayer or targetPlayer == player then return true end
+        if targetPlayer.Neutral or player.Neutral then return false end
+        
+        local teams = Teams:GetTeams()
+        if #teams < 2 then return false end
+        
+        local myTeamName, myTeamColor = GetPlayerActualTeam(player)
+        local targetTeamName, targetTeamColor = GetPlayerActualTeam(targetPlayer)
+        if myTeamName and targetTeamName then return myTeamName == targetTeamName end
+        if myTeamColor and targetTeamColor then return myTeamColor == targetTeamColor end
         return false
     end
 
@@ -1217,10 +1294,45 @@ local ESPCore = (function()
         if pool then table.insert(pool, drawing) end
     end
 
-    local function GetTeamColor(player)
-        if player.TeamColor then return player.TeamColor.Color end
-        if player.Team and player.Team.TeamColor then return player.Team.TeamColor.Color end
-        return Color3.fromRGB(255, 255, 255)
+    local function GetTeamColor(targetPlayer)
+        local isAlly = false
+        if LocalPlayer and targetPlayer then
+            if not LocalPlayer.Neutral and not targetPlayer.Neutral and not IsGameFFAOrSolo() then
+                local myTeamName, myTeamColor = GetPlayerActualTeam(LocalPlayer)
+                local targetTeamName, targetTeamColor = GetPlayerActualTeam(targetPlayer)
+                if myTeamName and targetTeamName and myTeamName == targetTeamName then
+                    isAlly = true
+                elseif myTeamColor and targetTeamColor and myTeamColor == targetTeamColor then
+                    isAlly = true
+                end
+            end
+        end
+
+        local colorMode = getgenv().ESPColorMode or "Auto" -- "Auto", "AllyEnemy", "TeamColor"
+
+        if colorMode == "AllyEnemy" then
+            if isAlly then
+                return Color3.fromRGB(50, 255, 120) -- Verde Aliado
+            else
+                return Color3.fromRGB(255, 60, 60)  -- Vermelho Inimigo
+            end
+        end
+
+        -- Modo Auto ou TeamColor (Verificação dinâmica a cada frame!)
+        local teamName, teamCol = GetPlayerActualTeam(targetPlayer)
+        if teamCol then
+            return teamCol
+        elseif teamName then
+            local hash = 0
+            for i = 1, #teamName do hash = hash + string.byte(teamName, i) end
+            return Color3.fromHSV((hash % 100) / 100, 0.85, 1)
+        end
+
+        if isAlly then
+            return Color3.fromRGB(50, 255, 120)
+        else
+            return Color3.fromRGB(255, 75, 75)
+        end
     end
 
     local function CreateDrawings(playerName)
@@ -1298,6 +1410,31 @@ local ESPCore = (function()
             if player ~= LocalPlayer then
                 local character = player.Character
                 local drawings = playerDrawings[player.Name]
+
+                -- Checagem dinâmica de Aliado em tempo real
+                local isAlly = false
+                if not LocalPlayer.Neutral and not player.Neutral and not IsGameFFAOrSolo() then
+                    local myTeamName, myTeamColor = GetPlayerActualTeam(LocalPlayer)
+                    local targetTeamName, targetTeamColor = GetPlayerActualTeam(player)
+                    if myTeamName and targetTeamName and myTeamName == targetTeamName then
+                        isAlly = true
+                    elseif myTeamColor and targetTeamColor and myTeamColor == targetTeamColor then
+                        isAlly = true
+                    end
+                end
+
+                if getgenv().ESPHideAllies and isAlly then
+                    if drawings then
+                        drawings.Box.Visible = false; drawings.NameTag.Visible = false 
+                        drawings.HealthBg.Visible = false; drawings.HealthFg.Visible = false
+                        drawings.Tracer.Visible = false
+                        if drawings.InvSlots then
+                            for i = 1, 9 do drawings.InvSlots[i].Visible = false; drawings.InvTexts[i].Visible = false end
+                        end
+                    end
+                    character = nil -- Ignora desenho de aliados quando a opção estiver ativa
+                end
+
                 if character then
                     local root = character:FindFirstChild("HumanoidRootPart")
                     local head = character:FindFirstChild("Head")
@@ -1558,9 +1695,15 @@ local HighAlertCore = (function()
 
     local function IsAlly(targetPlayer)
         if not teamCheckEnabled then return false end
-        if not LocalPlayer.Team then return false end
-        if not targetPlayer.Team then return false end
-        return LocalPlayer.Team == targetPlayer.Team
+        if not targetPlayer or targetPlayer == LocalPlayer then return true end
+        if targetPlayer.Neutral or LocalPlayer.Neutral then return false end
+        if IsGameFFAOrSolo() then return false end
+        
+        local myTeamName, myTeamColor = GetPlayerActualTeam(LocalPlayer)
+        local targetTeamName, targetTeamColor = GetPlayerActualTeam(targetPlayer)
+        if myTeamName and targetTeamName then return myTeamName == targetTeamName end
+        if myTeamColor and targetTeamColor then return myTeamColor == targetTeamColor end
+        return false
     end
 
     local function GetColorByDistance(dist)
@@ -6452,6 +6595,26 @@ do
     local espToggle = ESPGroup:Toggle("Ativar ESP (Box)", ESPCore:IsEnabled(), function(v)
         ESPCore:SetEnabled(v)
     end, function(sub)
+        local espColorModeDropdown = sub:Dropdown("Modo de Cores ESP", {
+            "Automático (Times / FFA)",
+            "Aliado vs Inimigo (Verde/Vermelho)",
+            "Cor Real do Time"
+        }, "Automático (Times / FFA)", function(val)
+            if val == "Aliado vs Inimigo (Verde/Vermelho)" then
+                getgenv().ESPColorMode = "AllyEnemy"
+            elseif val == "Cor Real do Time" then
+                getgenv().ESPColorMode = "TeamColor"
+            else
+                getgenv().ESPColorMode = "Auto"
+            end
+        end)
+        ConfigManager:Register("espColorMode", espColorModeDropdown)
+
+        local hideAlliesToggle = sub:Toggle("Ocultar Aliados (Apenas Inimigos)", (getgenv().ESPHideAllies or false), function(v)
+            getgenv().ESPHideAllies = v
+        end)
+        ConfigManager:Register("espHideAllies", hideAlliesToggle)
+
         local espNamesToggle = sub:ToggleSlider("Mostrar Nomes", 8, 24, (getgenv().ESPNameSize or 12), (getgenv().ESPNames or false), function(v)
             getgenv().ESPNames = v
         end, function(v)
