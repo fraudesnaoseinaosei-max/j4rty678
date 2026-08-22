@@ -530,16 +530,6 @@ local AimbotCore = (function()
 
     local function CheckAimbotTriggerActive()
         if not isEnabled then return false end
-        if typeof(aimKey) == "string" and hasIsKeyDown then
-            local strKey = aimKey:lower()
-            if strKey == "m4" or strKey == "mousebutton4" or strKey == "side1" then
-                return checkKeyFunc(0x05)
-            elseif strKey == "m5" or strKey == "mousebutton5" or strKey == "side2" then
-                return checkKeyFunc(0x06)
-            elseif strKey == "m3" or strKey == "mousebutton3" then
-                return checkKeyFunc(0x04)
-            end
-        end
         return isActive
     end
 
@@ -5070,8 +5060,6 @@ function VoidLib:CreateWindow()
                         if strKey == "rightclick" or strKey == "mousebutton2" or strKey == "m2" then return "M2" end
                         if strKey == "leftclick" or strKey == "mousebutton1" or strKey == "m1" then return "M1" end
                         if strKey == "middleclick" or strKey == "mousebutton3" or strKey == "m3" then return "M3" end
-                        if strKey == "mousebutton4" or strKey == "m4" or strKey == "side1" then return "M4" end
-                        if strKey == "mousebutton5" or strKey == "m5" or strKey == "side2" then return "M5" end
                         return key
                     end
                     return "M2"
@@ -5123,33 +5111,6 @@ function VoidLib:CreateWindow()
                             conn:Disconnect()
                         end
                     end)
-
-                    local hasKeyCheck = (typeof(iskeydown) == "function") or (typeof(iskeypressed) == "function")
-                    local keyCheckFunc = iskeydown or iskeypressed
-                    if hasKeyCheck then
-                        task.spawn(function()
-                            while listening do
-                                if keyCheckFunc(0x05) then
-                                    currentKey = "M4"
-                                    KeyBtn.Text = "M4"
-                                    pcall(keybindCallback, "M4")
-                                    listening = false
-                                    KeyBtn.TextColor3 = Themes.Text
-                                    if conn then conn:Disconnect() end
-                                    break
-                                elseif keyCheckFunc(0x06) then
-                                    currentKey = "M5"
-                                    KeyBtn.Text = "M5"
-                                    pcall(keybindCallback, "M5")
-                                    listening = false
-                                    KeyBtn.TextColor3 = Themes.Text
-                                    if conn then conn:Disconnect() end
-                                    break
-                                end
-                                task.wait(0.03)
-                            end
-                        end)
-                    end
                 end)
                 
                 local TBtn = Instance.new("TextButton")
@@ -5492,8 +5453,6 @@ function VoidLib:CreateWindow()
                         if strKey == "rightclick" or strKey == "mousebutton2" or strKey == "m2" then return "M2" end
                         if strKey == "leftclick" or strKey == "mousebutton1" or strKey == "m1" then return "M1" end
                         if strKey == "middleclick" or strKey == "mousebutton3" or strKey == "m3" then return "M3" end
-                        if strKey == "mousebutton4" or strKey == "m4" or strKey == "side1" then return "M4" end
-                        if strKey == "mousebutton5" or strKey == "m5" or strKey == "side2" then return "M5" end
                         return key
                     end
                     return "E"
@@ -5542,33 +5501,6 @@ function VoidLib:CreateWindow()
                             pcall(callback, currentKey)
                         end
                     end)
-
-                    local hasKeyCheck = (typeof(iskeydown) == "function") or (typeof(iskeypressed) == "function")
-                    local keyCheckFunc = iskeydown or iskeypressed
-                    if hasKeyCheck then
-                        task.spawn(function()
-                            while getgenv().IsBindingKey do
-                                if keyCheckFunc(0x05) then
-                                    currentKey = "M4"
-                                    BindBtn.Text = "M4"
-                                    BindBtn.TextColor3 = Themes.Text
-                                    getgenv().IsBindingKey = false
-                                    if conn then conn:Disconnect() end
-                                    pcall(callback, "M4")
-                                    break
-                                elseif keyCheckFunc(0x06) then
-                                    currentKey = "M5"
-                                    BindBtn.Text = "M5"
-                                    BindBtn.TextColor3 = Themes.Text
-                                    getgenv().IsBindingKey = false
-                                    if conn then conn:Disconnect() end
-                                    pcall(callback, "M5")
-                                    break
-                                end
-                                task.wait(0.03)
-                            end
-                        end)
-                    end
                 end)
                 return BFrame
             end
@@ -6045,16 +5977,12 @@ do
             "M2 (Botão Direito)",
             "M1 (Botão Esquerdo)",
             "M3 (Scroll / Meio)",
-            "M4 (Lateral Voltar)",
-            "M5 (Lateral Avançar)",
             "E", "Q", "F", "C", "V", "X", "Z", "LeftShift", "LeftControl", "LeftAlt"
         }
         local keyMap = {
             ["M2 (Botão Direito)"] = Enum.UserInputType.MouseButton2,
             ["M1 (Botão Esquerdo)"] = Enum.UserInputType.MouseButton1,
             ["M3 (Scroll / Meio)"] = Enum.UserInputType.MouseButton3,
-            ["M4 (Lateral Voltar)"] = "M4",
-            ["M5 (Lateral Avançar)"] = "M5",
             ["E"] = Enum.KeyCode.E,
             ["Q"] = Enum.KeyCode.Q,
             ["F"] = Enum.KeyCode.F,
