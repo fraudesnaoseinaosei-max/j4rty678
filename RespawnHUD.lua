@@ -231,12 +231,19 @@ local TeamManager = (function()
         local myTeam = GetValidTeam(LocalPlayer)
         local targetTeam = GetValidTeam(targetPlayer)
 
-        -- Se ambos têm times ativos e válidos dentro de Teams
+        -- 1. Se ambos têm times ativos e válidos dentro de Teams
         if myTeam and targetTeam then
             return myTeam == targetTeam
         end
 
-        -- Se algum jogador não tem time dentro de Teams, é neutro/inimigo
+        -- 2. Suporte para jogos que usam player.TeamColor diretamente (sem instâncias em Teams)
+        if not LocalPlayer.Neutral and not targetPlayer.Neutral then
+            if LocalPlayer.TeamColor and targetPlayer.TeamColor then
+                return LocalPlayer.TeamColor == targetPlayer.TeamColor
+            end
+        end
+
+        -- Se algum jogador não tem time dentro de Teams e não tem a mesma cor de time, é neutro/inimigo
         return false
     end
 
@@ -394,8 +401,10 @@ local AimbotCore = (function()
                     if isSameTeam(targetPlayer) then shouldTarget = false end
 
                     -- Checar se é Amigo ignorado
-                    if ignoredPlayers["Amigos"] and player:IsFriendsWith(targetPlayer.UserId) then
-                        shouldTarget = false
+                    if ignoredPlayers["Amigos"] then
+                        local isFriend = false
+                        pcall(function() isFriend = player:IsFriendsWith(targetPlayer.UserId) end)
+                        if isFriend then shouldTarget = false end
                     end
 
                     -- Checar se Jogador está na lista de exceção
@@ -411,17 +420,26 @@ local AimbotCore = (function()
                         shouldTarget = false
                     end
 
-                    if shouldTarget and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") and targetPlayer.Character:FindFirstChild("Humanoid") then
-                        local head = targetPlayer.Character.Head
-                        local humanoid = targetPlayer.Character.Humanoid
-                        if humanoid.Health > 0 and isTargetVisible(head, targetPlayer.Character) then
-                            local viewportPoint, onScreen = camera:WorldToViewportPoint(head.Position)
-                            if onScreen then
-                                local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
-                                local dist2D = (target2D - screenOrigin).Magnitude
-                                if dist2D <= maxFov and dist2D < nearestDistance then
-                                    nearestTarget = targetPlayer
-                                    nearestDistance = dist2D
+                    local char = targetPlayer.Character
+                    if shouldTarget and char then
+                        local humanoid = char:FindFirstChildOfClass("Humanoid") or char:FindFirstChild("Humanoid")
+                        if humanoid and humanoid.Health > 0 then
+                            local head = char:FindFirstChild("Head")
+                            local targetPart = (head and isTargetVisible(head, char) and head)
+                                or (char:FindFirstChild("HumanoidRootPart") and isTargetVisible(char.HumanoidRootPart, char) and char.HumanoidRootPart)
+                                or (char:FindFirstChild("Torso") and isTargetVisible(char.Torso, char) and char.Torso)
+                                or (char:FindFirstChild("UpperTorso") and isTargetVisible(char.UpperTorso, char) and char.UpperTorso)
+                                or getAnyVisiblePart(char)
+
+                            if targetPart then
+                                local viewportPoint, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+                                if onScreen then
+                                    local target2D = Vector2.new(viewportPoint.X, viewportPoint.Y)
+                                    local dist2D = (target2D - screenOrigin).Magnitude
+                                    if dist2D <= maxFov and dist2D < nearestDistance then
+                                        nearestTarget = targetPlayer
+                                        nearestDistance = dist2D
+                                    end
                                 end
                             end
                         end
@@ -544,7 +562,11 @@ local AimbotCore = (function()
         local hum = char:FindFirstChildOfClass("Humanoid") or char:FindFirstChild("Humanoid")
         if not hum or hum.Health <= 0 then return false end
         if isSameTeam(targetPlayer) then return false end
-        if ignoredPlayers["Amigos"] and player:IsFriendsWith(targetPlayer.UserId) then return false end
+        if ignoredPlayers["Amigos"] then
+            local isFriend = false
+            pcall(function() isFriend = player:IsFriendsWith(targetPlayer.UserId) end)
+            if isFriend then return false end
+        end
         if ignoredPlayers[targetPlayer.Name] or (targetPlayer.DisplayName and ignoredPlayers[targetPlayer.DisplayName]) then return false end
         if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then return false end
         if targetPlayer.TeamColor and ignoredTeams[tostring(targetPlayer.TeamColor)] then return false end
