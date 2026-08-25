@@ -967,6 +967,10 @@ local AutoShotCore = (function()
     local mouse = player:GetMouse()
 
     local isEnabled = false
+    local teamCheckEnabled = true
+    if getgenv().AutoShotTeamCheck ~= nil then
+        teamCheckEnabled = getgenv().AutoShotTeamCheck
+    end
     local ignoredPlayers = {}
     local ignoredTeams = {}
 
@@ -1051,12 +1055,30 @@ local AutoShotCore = (function()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then return nil end
 
-        -- Verificar filtro de Exceção de Jogadores (Nome exato ou DisplayName)
-        if ignoredPlayers[targetPlayer.Name] or ignoredPlayers[targetPlayer.DisplayName] then
+        -- 1. Checar se é Aliado (Team Check / Ignorar Aliados)
+        if teamCheckEnabled and TeamManager and TeamManager.IsAlly and TeamManager.IsAlly(targetPlayer) then
             return nil
         end
 
-        -- Verificar filtro de Exceção de Times (Nome do time ou TeamColor)
+        -- 2. Checar se a opção "Amigos" está na lista de exceções
+        if ignoredPlayers["Amigos"] then
+            local isFriend = false
+            pcall(function()
+                isFriend = player:IsFriendsWith(targetPlayer.UserId)
+            end)
+            if isFriend then return nil end
+        end
+
+        -- 3. Verificar filtro de Exceção de Jogadores individuais (Nome exato ou DisplayName)
+        if ignoredPlayers[targetPlayer.Name] or (targetPlayer.DisplayName and ignoredPlayers[targetPlayer.DisplayName]) then
+            return nil
+        end
+
+        -- 4. Verificar filtro de Exceção de Times (Nome do time ou TeamColor)
+        local validTeam = (TeamManager and TeamManager.GetValidTeam and TeamManager.GetValidTeam(targetPlayer)) or targetPlayer.Team
+        if validTeam and ignoredTeams[validTeam.Name] then
+            return nil
+        end
         if targetPlayer.Team and ignoredTeams[targetPlayer.Team.Name] then
             return nil
         end
@@ -1117,6 +1139,15 @@ local AutoShotCore = (function()
 
     function AutoShot:IsEnabled()
         return isEnabled
+    end
+
+    function AutoShot:SetTeamCheck(state)
+        teamCheckEnabled = state
+        if getgenv then getgenv().AutoShotTeamCheck = state end
+    end
+
+    function AutoShot:IsTeamCheck()
+        return teamCheckEnabled
     end
 
     function AutoShot:SetIntervalMS(ms)
@@ -6114,6 +6145,11 @@ do
             AutoShotCore:SetIntervalMS(v)
         end, "ms")
         ConfigManager:Register("autoShotInterval", intervalInput)
+
+        local teamCheckToggle = sub:Toggle("Ignorar Aliados", AutoShotCore:IsTeamCheck(), function(v)
+            AutoShotCore:SetTeamCheck(v)
+        end)
+        ConfigManager:Register("autoShotTeamCheck", teamCheckToggle)
     end)
     ConfigManager:Register("autoShotEnabled", autoShotToggle)
 
