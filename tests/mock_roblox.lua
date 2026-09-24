@@ -19,6 +19,28 @@ _genv.identifyexecutor = function()
 end
 
 -- ============================================================================
+-- Lua Compatibility & Global Helpers
+-- ============================================================================
+local _unpack = unpack or table.unpack
+_genv.unpack = _unpack
+_G.unpack = _unpack
+
+local function typeof_impl(val)
+    local t = type(val)
+    if t == "table" then
+        if val.ClassName then return "Instance" end
+        if val.EnumType then return "EnumItem" end
+        if val.X and val.Y and val.Z then return "Vector3" end
+        if val.X and val.Y then return "Vector2" end
+        if val.R and val.G and val.B then return "Color3" end
+        if val.Scale and val.Offset then return "UDim" end
+    end
+    return t
+end
+_genv.typeof = typeof_impl
+_G.typeof = typeof_impl
+
+-- ============================================================================
 -- Timing & Coroutine Helpers
 -- ============================================================================
 local _startTime = os.clock and os.clock() or os.time()
@@ -36,15 +58,15 @@ _genv.task = {
     wait = function(s) return s or 0.03 end,
     spawn = function(fn, ...)
         local args = { ... }
-        return coroutine.wrap(function() fn(unpack(args)) end)()
+        return coroutine.wrap(function() fn(_unpack(args)) end)()
     end,
     defer = function(fn, ...)
         local args = { ... }
-        return coroutine.wrap(function() fn(unpack(args)) end)()
+        return coroutine.wrap(function() fn(_unpack(args)) end)()
     end,
     delay = function(s, fn, ...)
         local args = { ... }
-        return coroutine.wrap(function() fn(unpack(args)) end)()
+        return coroutine.wrap(function() fn(_unpack(args)) end)()
     end
 }
 
@@ -56,18 +78,30 @@ local _vfsFolders = { [""] = true, ["/"] = true }
 
 local function normalizePath(path)
     path = tostring(path):gsub("\\", "/")
+    if path == "." or path == "./" then
+        return ""
+    end
     if path:sub(1, 2) == "./" then
         path = path:sub(3)
     end
     return path
 end
 
+local function registerFolders(path)
+    local parts = {}
+    for part in path:gmatch("[^/]+") do
+        table.insert(parts, part)
+        _vfsFolders[table.concat(parts, "/")] = true
+    end
+end
+
 _genv.writefile = function(path, content)
     local p = normalizePath(path)
     _vfsFiles[p] = tostring(content)
     local parent = p:match("^(.-)/[^/]+$")
-    if parent then
+    if parent and parent ~= "" then
         _vfsFolders[parent] = true
+        registerFolders(parent)
     end
     return true
 end
@@ -87,7 +121,10 @@ end
 
 _genv.makefolder = function(path)
     local p = normalizePath(path)
-    _vfsFolders[p] = true
+    if p ~= "" then
+        _vfsFolders[p] = true
+        registerFolders(p)
+    end
     return true
 end
 
@@ -231,7 +268,7 @@ local function createSignal()
         end
         for _, c in ipairs(listeners) do
             if c.Connected then
-                c._callback(...)
+                pcall(c._callback, ...)
             end
         end
     end
@@ -445,7 +482,7 @@ CFrame.__index = function(t, k)
     return CFrame[k]
 end
 
-function CFrame.new(x, y, z)
+function CFrame.new(x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22)
     local cf = setmetatable({}, CFrame)
     if type(x) == "table" and x.X and x.Y and x.Z then
         -- CFrame.new(posVector3) or CFrame.new(pos, lookAt)
@@ -472,9 +509,21 @@ function CFrame.new(x, y, z)
         cf._x = tonumber(x) or 0
         cf._y = tonumber(y) or 0
         cf._z = tonumber(z) or 0
-        cf._m00, cf._m10, cf._m20 = 1, 0, 0
-        cf._m01, cf._m11, cf._m21 = 0, 1, 0
-        cf._m02, cf._m12, cf._m22 = 0, 0, 1
+        if r00 ~= nil then
+            cf._m00 = tonumber(r00) or 1
+            cf._m01 = tonumber(r01) or 0
+            cf._m02 = tonumber(r02) or 0
+            cf._m10 = tonumber(r10) or 0
+            cf._m11 = tonumber(r11) or 1
+            cf._m12 = tonumber(r12) or 0
+            cf._m20 = tonumber(r20) or 0
+            cf._m21 = tonumber(r21) or 0
+            cf._m22 = tonumber(r22) or 1
+        else
+            cf._m00, cf._m10, cf._m20 = 1, 0, 0
+            cf._m01, cf._m11, cf._m21 = 0, 1, 0
+            cf._m02, cf._m12, cf._m22 = 0, 0, 1
+        end
     end
     return cf
 end
@@ -809,7 +858,8 @@ function Instance.new(className, parent)
         CFrame = CFrame.new(0, 0, 0),
         Anchored = false,
         CanCollide = true,
-        Value = nil
+        Value = nil,
+        PrimaryPart = nil
     }
     
     local obj = {
@@ -924,6 +974,28 @@ function Instance.new(className, parent)
         end
         scan(self)
         return list
+    end
+    
+    function obj:IsDescendantOf(ancestor)
+        local curr = self._parent
+        while curr do
+            if curr == ancestor then return true end
+            curr = curr._parent
+        end
+        return false
+    end
+    
+    function obj:IsAncestorOf(descendant)
+        if not descendant then return false end
+        return descendant:IsDescendantOf(self)
+    end
+    
+    function obj:SetPrimaryPartCFrame(cf)
+        if self.PrimaryPart then
+            self.PrimaryPart.CFrame = cf
+        else
+            self.CFrame = cf
+        end
     end
     
     function obj:IsA(className)
@@ -1074,6 +1146,7 @@ _genv.Instance = Instance
 -- Drawing API
 -- ============================================================================
 local Drawing = { _activeDrawings = {} }
+Drawing._activeObjects = Drawing._activeDrawings
 
 function Drawing.new(drawType)
     local d = {
@@ -1181,21 +1254,40 @@ local function jsonDecode(str)
     
     local function parseString()
         idx = idx + 1
-        local start = idx
         local buf = {}
         while idx <= len do
             local c = str:sub(idx, idx)
             if c == '"' then
-                table.insert(buf, str:sub(start, idx - 1))
                 idx = idx + 1
-                local s = table.concat(buf)
-                s = s:gsub('\\n', '\n'):gsub('\\r', '\r'):gsub('\\t', '\t'):gsub('\\"', '"'):gsub('\\\\', '\\')
-                return s
+                return table.concat(buf)
             elseif c == '\\' then
-                table.insert(buf, str:sub(start, idx - 1))
-                idx = idx + 2
-                start = idx
+                idx = idx + 1
+                local esc = str:sub(idx, idx)
+                idx = idx + 1
+                if esc == 'n' then table.insert(buf, '\n')
+                elseif esc == 'r' then table.insert(buf, '\r')
+                elseif esc == 't' then table.insert(buf, '\t')
+                elseif esc == 'b' then table.insert(buf, '\b')
+                elseif esc == 'f' then table.insert(buf, '\f')
+                elseif esc == '"' then table.insert(buf, '"')
+                elseif esc == '\\' then table.insert(buf, '\\')
+                elseif esc == '/' then table.insert(buf, '/')
+                elseif esc == 'u' then
+                    local hex = str:sub(idx, idx + 3)
+                    idx = idx + 4
+                    local code = tonumber(hex, 16)
+                    if code then
+                        if utf8 and utf8.char then
+                            table.insert(buf, utf8.char(code))
+                        elseif code < 256 then
+                            table.insert(buf, string.char(code))
+                        else
+                            table.insert(buf, "\\u" .. hex)
+                        end
+                    end
+                else table.insert(buf, esc) end
             else
+                table.insert(buf, c)
                 idx = idx + 1
             end
         end
@@ -1327,8 +1419,7 @@ currentCamera.CFrame = CFrame.new(0, 10, 20)
 function currentCamera:WorldToViewportPoint(worldPos)
     local rel = self.CFrame:PointToObjectSpace(worldPos)
     local depth = -rel.Z
-    local onScreen = depth > 0.1
-    if not onScreen then
+    if depth <= 0.1 then
         return Vector3.new(-1000, -1000, depth), false
     end
     local fovRad = math.rad(self.FieldOfView)
@@ -1341,6 +1432,7 @@ function currentCamera:WorldToViewportPoint(worldPos)
     
     local screenX = (normX + 1) * 0.5 * self.ViewportSize.X
     local screenY = (1 - normY) * 0.5 * self.ViewportSize.Y
+    local onScreen = (depth > 0.1) and (screenX >= 0 and screenX <= self.ViewportSize.X) and (screenY >= 0 and screenY <= self.ViewportSize.Y)
     return Vector3.new(screenX, screenY, depth), onScreen
 end
 
@@ -1373,6 +1465,27 @@ LocalPlayer.CharacterAdded = createSignal()
 LocalPlayer.CharacterRemoving = createSignal()
 LocalPlayer._friendCache = {}
 
+local PlayerGui = Instance.new("PlayerGui", LocalPlayer)
+PlayerGui.Name = "PlayerGui"
+LocalPlayer.PlayerGui = PlayerGui
+
+local MockMouse = {
+    Hit = CFrame.new(0, 0, 0),
+    Target = nil,
+    X = 960,
+    Y = 540,
+    KeyDown = createSignal(),
+    KeyUp = createSignal(),
+    Button1Down = createSignal(),
+    Button1Up = createSignal(),
+    Button2Down = createSignal(),
+    Button2Up = createSignal(),
+    Move = createSignal()
+}
+function LocalPlayer:GetMouse()
+    return MockMouse
+end
+
 function LocalPlayer:IsFriendsWith(userId)
     if self._friendCache[userId] ~= nil then
         return self._friendCache[userId]
@@ -1381,6 +1494,10 @@ function LocalPlayer:IsFriendsWith(userId)
 end
 
 Players.LocalPlayer = LocalPlayer
+
+function Players:GetUserThumbnailAsync(userId, thumbType, thumbSize)
+    return "rbxassetid://0", true
+end
 
 function Players:GetPlayers()
     local list = {}
@@ -1418,12 +1535,24 @@ local RunService = Instance.new("RunService", game)
 RunService.RenderStepped = createSignal()
 RunService.Heartbeat = createSignal()
 RunService.Stepped = createSignal()
+RunService._boundRenderSteps = {}
 function RunService:IsStudio() return false end
 function RunService:IsClient() return true end
 function RunService:IsServer() return false end
 
+function RunService:BindToRenderStep(name, priority, callback)
+    self._boundRenderSteps[name] = callback
+end
+
+function RunService:UnbindFromRenderStep(name)
+    self._boundRenderSteps[name] = nil
+end
+
 function RunService:Step(dt)
     dt = dt or (1 / 60)
+    for _, cb in pairs(self._boundRenderSteps) do
+        pcall(cb, dt)
+    end
     self.RenderStepped:Fire(dt)
     self.Stepped:Fire(0, dt)
     self.Heartbeat:Fire(dt)
@@ -1505,6 +1634,14 @@ function StarterGui:SetCore(coreType, data)
     end
 end
 
+local ReplicatedStorage = Instance.new("Folder", game)
+ReplicatedStorage.Name = "ReplicatedStorage"
+
+local ContextActionService = Instance.new("ContextActionService", game)
+function ContextActionService:BindAction(name, fn, touch, ...) end
+function ContextActionService:UnbindAction(name) end
+function ContextActionService:BindActionAtPriority(name, fn, touch, priority, ...) end
+
 -- Wire Services to game:GetService
 local _services = {
     ["Workspace"] = workspace,
@@ -1515,7 +1652,9 @@ local _services = {
     ["TweenService"] = TweenService,
     ["HttpService"] = HttpService,
     ["CoreGui"] = CoreGui,
-    ["StarterGui"] = StarterGui
+    ["StarterGui"] = StarterGui,
+    ["ReplicatedStorage"] = ReplicatedStorage,
+    ["ContextActionService"] = ContextActionService
 }
 
 function game:GetService(serviceName)
@@ -1628,6 +1767,8 @@ _genv.TweenService = TweenService
 _genv.HttpService = HttpService
 _genv.CoreGui = CoreGui
 _genv.StarterGui = StarterGui
+_genv.ReplicatedStorage = ReplicatedStorage
+_genv.ContextActionService = ContextActionService
 _genv.MockRoblox = MockRoblox
 
 for k, v in pairs(_genv) do
@@ -1645,6 +1786,8 @@ MockRoblox.TweenService = TweenService
 MockRoblox.HttpService = HttpService
 MockRoblox.CoreGui = CoreGui
 MockRoblox.StarterGui = StarterGui
+MockRoblox.ReplicatedStorage = ReplicatedStorage
+MockRoblox.ContextActionService = ContextActionService
 MockRoblox.Drawing = Drawing
 MockRoblox.vfsFiles = _vfsFiles
 

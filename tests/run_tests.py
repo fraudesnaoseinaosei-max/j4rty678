@@ -312,6 +312,63 @@ def run_mock_engine_smoke_test() -> tuple[int, int, list[str]]:
         assert lua.eval('_loadstring_res') == 42, "loadstring failed to execute"
     tests.append(("Executor Globals: mousemoverel, UserInputService, loadstring", test_mouse_and_loadstring))
 
+    # -------------------------------------------------------------------------
+    # Milestone 1 Fix Additions: task.spawn, typeof, GetMouse, and Services
+    # -------------------------------------------------------------------------
+    def test_m1_fix_additions():
+        lua.execute('''
+            -- task.spawn unpack check
+            local task_executed = false
+            task.spawn(function(a, b)
+                if a == 10 and b == 20 then
+                    task_executed = true
+                end
+            end, 10, 20)
+            _task_ok = task_executed
+
+            -- typeof check
+            _typeof_inst = typeof(workspace)
+            _typeof_v3 = typeof(Vector3.new(1, 2, 3))
+            _typeof_v2 = typeof(Vector2.new(1, 2))
+            _typeof_c3 = typeof(Color3.new(1, 0, 0))
+            _typeof_num = typeof(123)
+
+            -- LocalPlayer mouse check
+            local mouse = game:GetService("Players").LocalPlayer:GetMouse()
+            _mouse_hit_ok = (mouse.Hit ~= nil and mouse.X == 960 and mouse.Y == 540)
+            _mouse_sig_ok = (mouse.Button1Down ~= nil and mouse.KeyDown ~= nil)
+
+            -- PlayerGui check
+            _playergui_ok = (game:GetService("Players").LocalPlayer.PlayerGui ~= nil)
+
+            -- Thumbnail check
+            local thumb, thumb_ok = game:GetService("Players"):GetUserThumbnailAsync(1, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+            _thumb_ok = (thumb_ok == true and thumb:find("rbxassetid") ~= nil)
+
+            -- Service retrieval
+            local rep = game:GetService("ReplicatedStorage")
+            local cas = game:GetService("ContextActionService")
+            _services_ok = (rep ~= nil and cas ~= nil and rep.Name == "ReplicatedStorage")
+
+            -- Hierarchy check
+            local folder = Instance.new("Folder")
+            local part = Instance.new("Part", folder)
+            _hierarchy_ok = part:IsDescendantOf(folder) and folder:IsAncestorOf(part)
+        ''')
+        assert lua.eval('_task_ok') == True, "task.spawn did not execute with arguments"
+        assert lua.eval('_typeof_inst') == "Instance", f"typeof(workspace) failed: {lua.eval('_typeof_inst')}"
+        assert lua.eval('_typeof_v3') == "Vector3", "typeof(Vector3) failed"
+        assert lua.eval('_typeof_v2') == "Vector2", "typeof(Vector2) failed"
+        assert lua.eval('_typeof_c3') == "Color3", "typeof(Color3) failed"
+        assert lua.eval('_typeof_num') == "number", "typeof(number) failed"
+        assert lua.eval('_mouse_hit_ok') == True, "mouse.Hit or position mismatch"
+        assert lua.eval('_mouse_sig_ok') == True, "mouse signals missing"
+        assert lua.eval('_playergui_ok') == True, "LocalPlayer.PlayerGui missing"
+        assert lua.eval('_thumb_ok') == True, "GetUserThumbnailAsync failed"
+        assert lua.eval('_services_ok') == True, "ReplicatedStorage or ContextActionService resolution failed"
+        assert lua.eval('_hierarchy_ok') == True, "IsDescendantOf or IsAncestorOf failed"
+    tests.append(("M1 Fix Engine Additions: task.spawn, typeof, GetMouse, Services, Hierarchy", test_m1_fix_additions))
+
     # Run all smoke tests
     print("=== DreezHub Mock Roblox Engine Smoke Test ===")
     passed = 0

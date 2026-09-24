@@ -21,7 +21,7 @@ def preprocess_luau(code: str) -> str:
     preserving line counts and block boundaries.
     """
     # Replace continue keyword when used as a standalone statement
-    clean_code = re.sub(r'(?<![a-zA-Z0-9_])continue(?![a-zA-Z0-9_])', 'do end', code)
+    clean_code = re.sub(r'(?<![a-zA-Z0-9_\.:])continue(?![a-zA-Z0-9_])', 'do end', code)
     return clean_code
 
 def verify_file(file_path: Path) -> tuple[bool, str]:
