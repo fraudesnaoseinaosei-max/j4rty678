@@ -3,3 +3,6 @@
 *.avi
 .tempmediaStorage/
 .user_uploaded/
+.agents/teamwork/
+__pycache__/
+*.pyc
